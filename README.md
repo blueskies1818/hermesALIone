@@ -60,4 +60,4 @@ Both licensed under MIT.
 
 ## License
 
-MIT — see [Desktop/LICENSE](Desktop/LICENSE) and [Agent/LICENSE](Agent/LICENSE).
+MIT — see [LICENSE].
