@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useVoiceMode } from "../../hooks/useVoiceMode";
-import ModelSelector from "../../components/ModelSelector";
+import { useVoiceMode } from "@renderer/hooks/useVoiceMode";
+import ModelSelector from "@renderer/components/ModelSelector";
 
 type MicState = "idle" | "checking" | "listening" | "error";
 
