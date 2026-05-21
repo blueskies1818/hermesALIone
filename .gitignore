@@ -6,9 +6,9 @@
 *.sqlite3
 
 # ── Caches ─────────────────────────────────────────────────────────────────────
-audio_cache/
-image_cache/
-cache/
+/audio_cache/
+/image_cache/
+/cache/
 __pycache__/
 *.py[cod]
 *.pyo
@@ -42,16 +42,16 @@ node_modules/
 .npm/
 
 # ── Logs ───────────────────────────────────────────────────────────────────────
-logs/
+/logs/
 *.log
 *.log.*
 
 # ── Runtime / state files ──────────────────────────────────────────────────────
-sessions/
-pairing/
-hooks/
-memories/
-sandboxes/
+/sessions/
+/pairing/
+/hooks/
+/memories/
+/sandboxes/
 *.lock
 !uv.lock
 !package-lock.json
@@ -68,7 +68,7 @@ desktop/sessions.json
 !.env.example
 *.pem
 *.key
-secrets/
+/secrets/
 
 # ── OS / editor noise ──────────────────────────────────────────────────────────
 .DS_Store
@@ -97,10 +97,10 @@ config.yaml
 models.json
 
 # ── Cron internals ─────────────────────────────────────────────────────────────
-cron/
+/cron/
 
 # ── Runtime agent installation ──────────────────────────────────────────────────
-hermes-agent/
+/hermes-agent/
 
 # ── Root-level runtime copies (source is in Agent/) ─────────────────────────────
 /skills/
