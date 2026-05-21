@@ -34,12 +34,15 @@ else
         source .venv/bin/activate
     fi
 
+    # API server must be enabled for port 8642 to bind
+    export API_SERVER_ENABLED=true
+
     # Try service-based start first, fall back to foreground in background
     if hermes gateway start 2>/dev/null; then
         echo "Gateway service started."
     else
         echo "Service start unavailable — running gateway in background..."
-        nohup hermes gateway run > /dev/null 2>&1 &
+        nohup hermes gateway run --replace > /dev/null 2>&1 &
     fi
 
     # Wait for gateway to become available (up to 30s)

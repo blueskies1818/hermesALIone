@@ -22,9 +22,10 @@ else {
     }
 
     # Start gateway in background via Start-Job
+    $env:API_SERVER_ENABLED = "true"
     $gatewayJob = Start-Job -Name "HermesGateway" -ScriptBlock {
         Set-Location $using:ScriptDir\Agent
-        hermes gateway run 2>&1 | Out-Null
+        hermes gateway run --replace 2>&1 | Out-Null
     }
 
     # Wait for gateway to become ready (up to 30s)

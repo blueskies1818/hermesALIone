@@ -23,7 +23,8 @@ if exist ".venv\Scripts\activate.bat" (
 )
 
 REM -- Start gateway in background ---------------------------------------------
-start "" /B hermes gateway run >nul 2>&1
+set API_SERVER_ENABLED=true
+start "" /B hermes gateway run --replace >nul 2>&1
 
 REM -- Wait for gateway to become ready (up to 30s) ----------------------------
 echo Waiting for gateway to become ready...
