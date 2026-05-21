@@ -61,6 +61,11 @@ if [ ! -f ".env" ]; then
     echo -e "${GREEN}Created .env from .env.example — edit to add API keys${NC}"
 fi
 
+# Create default config.yaml if it doesn't exist
+if python3 -c "from hermes_cli.config import DEFAULT_CONFIG, save_config, get_config_path; p = get_config_path(); p.exists() or save_config(DEFAULT_CONFIG)" 2>/dev/null; then
+    echo -e "${GREEN}Created ~/.hermes/config.yaml${NC}"
+fi
+
 cd "$SCRIPT_DIR"
 echo ""
 

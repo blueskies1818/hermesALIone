@@ -60,6 +60,10 @@ if not exist ".env" (
     echo Created .env from .env.example -- edit to add API keys
 )
 
+REM -- Create default config.yaml if it doesn't exist --------------------------
+python -c "from hermes_cli.config import DEFAULT_CONFIG, save_config, get_config_path; p = get_config_path(); p.exists() or save_config(DEFAULT_CONFIG)" 2>nul
+if %errorlevel% equ 0 echo Created %%USERPROFILE%%\.hermes\config.yaml
+
 cd /d "%~dp0"
 echo.
 
