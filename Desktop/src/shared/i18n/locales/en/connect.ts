@@ -1,0 +1,37 @@
+export default {
+  tabLocal: "Local",
+  tabRemote: "Remote",
+  tabSsh: "SSH",
+  localTitle: "Connect to this machine",
+  localDesc:
+    "Connect directly to the Hermes API server running on your local machine. No configuration needed.",
+  connectLocal: "Connect to this machine",
+  testing: "Testing...",
+  localNotRunning: "Hermes API server is not running on this machine. Start it first.",
+  localTestFailed: "Could not reach the local Hermes server. Make sure it's running.",
+  remoteTitle: "Connect over Network",
+  remoteDesc: "Connect to a Hermes API server on your local network or over the internet.",
+  serverUrl: "Server URL",
+  apiKey: "API Key",
+  apiKeyPlaceholder: "Enter your server API key",
+  connect: "Connect",
+  urlRequired: "Please enter a server URL.",
+  remoteFailed: "Could not connect to the remote server. Check the URL and API key.",
+  remoteTestFailed: "Connection test failed. Verify the server is running and reachable.",
+  remoteHint:
+    "The API key is set by the server operator. Leave blank if the server doesn't require authentication.",
+  sshTitle: "Connect via SSH Tunnel",
+  sshDesc:
+    "Create an encrypted SSH tunnel to a remote Hermes server. Best for connecting over the internet securely.",
+  sshHost: "Host",
+  sshPort: "Port",
+  sshUser: "Username",
+  sshKeyPath: "SSH Key Path",
+  sshRemotePort: "Remote Hermes Port",
+  connectSsh: "Connect via SSH",
+  sshRequired: "Host and username are required.",
+  sshFailed: "Could not establish SSH tunnel. Check your credentials and server reachability.",
+  sshTestFailed: "SSH connection test failed",
+  sshHint:
+    "Key path is optional — defaults to ~/.ssh/id_rsa. The tunnel securely forwards the Hermes API port.",
+} as const;

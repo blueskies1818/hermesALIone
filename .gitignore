@@ -1,0 +1,111 @@
+# ── Databases ──────────────────────────────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ── Caches ─────────────────────────────────────────────────────────────────────
+audio_cache/
+image_cache/
+cache/
+__pycache__/
+*.py[cod]
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.cache/
+
+# Large auto-generated JSON caches
+models_dev_cache.json
+ollama_cloud_models_cache.json
+
+# ── Build output ───────────────────────────────────────────────────────────────
+# Electron / Vite
+Desktop/dist/
+Desktop/dist-electron/
+Desktop/out/
+Desktop/node_modules/
+Desktop/*.tsbuildinfo
+
+# Python builds
+*.egg-info/
+dist/
+build/
+*.whl
+*.egg
+MANIFEST
+
+# Node (root-level)
+node_modules/
+.npm/
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+
+# ── Runtime / state files ──────────────────────────────────────────────────────
+sessions/
+pairing/
+hooks/
+memories/
+sandboxes/
+*.lock
+!uv.lock
+!package-lock.json
+!flake.lock
+.clean_shutdown
+gateway_state.json
+channel_directory.json
+desktop.json
+desktop/sessions.json
+
+# ── Secrets & environment ──────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ── OS / editor noise ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# ── Python virtual environments ────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.nix-profile/
+result
+result-*
+
+# ── Nix ────────────────────────────────────────────────────────────────────────
+.direnv/
+
+# ── Claude Code ─────────────────────────────────────────────────────────────────
+.claude/
+
+# ── Personal config / user data ─────────────────────────────────────────────────
+config.yaml
+models.json
+
+# ── Cron internals ─────────────────────────────────────────────────────────────
+cron/
+
+# ── Runtime agent installation ──────────────────────────────────────────────────
+hermes-agent/
+
+# ── Root-level runtime copies (source is in Agent/) ─────────────────────────────
+/skills/
+/plugins/
+/bin/
+
+# ── Vault (local secrets store) ────────────────────────────────────────────────
+vault/*
