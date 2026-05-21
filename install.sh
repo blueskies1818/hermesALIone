@@ -69,6 +69,14 @@ fi
 cd "$SCRIPT_DIR"
 echo ""
 
+# ── Build Agent web dashboard ──────────────────────────────────────────────────
+echo -e "${YELLOW}Building Agent web dashboard...${NC}"
+cd "$SCRIPT_DIR/Agent/web"
+npm install
+npm run build
+cd "$SCRIPT_DIR"
+echo ""
+
 # ── Install Desktop ────────────────────────────────────────────────────────────
 echo -e "${YELLOW}Installing Desktop dependencies...${NC}"
 cd "$SCRIPT_DIR/Desktop"

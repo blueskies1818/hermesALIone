@@ -67,6 +67,14 @@ if %errorlevel% equ 0 echo Created %%USERPROFILE%%\.hermes\config.yaml
 cd /d "%~dp0"
 echo.
 
+REM -- Build Agent web dashboard -----------------------------------------------
+echo Building Agent web dashboard...
+cd /d "%~dp0Agent\web"
+call npm install
+call npm run build
+cd /d "%~dp0"
+echo.
+
 REM -- Install Desktop ---------------------------------------------------------
 echo Installing Desktop dependencies...
 cd /d "%~dp0Desktop"

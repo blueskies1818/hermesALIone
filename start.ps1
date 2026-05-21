@@ -22,8 +22,10 @@ else {
     }
 
     # Start gateway in background via Start-Job
-    $env:API_SERVER_ENABLED = "true"
+    # API_SERVER_ENABLED must be set inside the ScriptBlock — Start-Job runs in a
+    # separate runspace and does not inherit $env: variables from the parent.
     $gatewayJob = Start-Job -Name "HermesGateway" -ScriptBlock {
+        $env:API_SERVER_ENABLED = "true"
         Set-Location $using:ScriptDir\Agent
         hermes gateway run --replace 2>&1 | Out-Null
     }
@@ -44,6 +46,35 @@ else {
         Write-Host "Warning: Gateway may still be starting — check logs in ~\.hermes\logs\"
     }
 
+    Pop-Location
+}
+
+# -- Start Hermes dashboard (REST API on port 9119) ----------------------------
+$dashRunning = Get-NetTCPConnection -LocalPort 9119 -ErrorAction SilentlyContinue
+if ($dashRunning) {
+    Write-Host "Hermes dashboard already running on port 9119."
+}
+else {
+    Write-Host "Starting Hermes dashboard (REST API on port 9119)..."
+    Push-Location "$ScriptDir\Agent"
+    if (Test-Path ".venv\Scripts\Activate.ps1") {
+        . ".venv\Scripts\Activate.ps1"
+    }
+    $dashJob = Start-Job -Name "HermesDashboard" -ScriptBlock {
+        Set-Location $using:ScriptDir\Agent
+        hermes dashboard --no-open --skip-build 2>&1 | Out-Null
+    }
+    Write-Host "Waiting for dashboard to become ready..."
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Seconds 1
+        if (Get-NetTCPConnection -LocalPort 9119 -ErrorAction SilentlyContinue) { break }
+    }
+    if (Get-NetTCPConnection -LocalPort 9119 -ErrorAction SilentlyContinue) {
+        Write-Host "Dashboard is ready."
+    }
+    else {
+        Write-Host "Warning: Dashboard may still be starting — Desktop connection may fail."
+    }
     Pop-Location
 }
 

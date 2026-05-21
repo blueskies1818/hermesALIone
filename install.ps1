@@ -64,6 +64,14 @@ if ($LASTEXITCODE -eq 0) {
 Set-Location $ScriptDir
 Write-Host ""
 
+# ── Build Agent web dashboard ──────────────────────────────────────────────────
+Write-Host "Building Agent web dashboard..." -ForegroundColor Yellow
+Set-Location "$ScriptDir\Agent\web"
+npm install
+npm run build
+Set-Location $ScriptDir
+Write-Host ""
+
 # ── Install Desktop ────────────────────────────────────────────────────────────
 Write-Host "Installing Desktop dependencies..." -ForegroundColor Yellow
 Set-Location "$ScriptDir\Desktop"

@@ -62,6 +62,40 @@ else
 fi
 
 # ------------------------------------------------------------------
+# Start Hermes dashboard (REST API on port 9119) if not already running
+# ------------------------------------------------------------------
+dashboard_listening() {
+    if command -v ss &>/dev/null; then
+        ss -tlnp 2>/dev/null | grep -q ':9119 '
+    elif command -v nc &>/dev/null; then
+        nc -z localhost 9119 2>/dev/null
+    else
+        (echo >/dev/tcp/localhost/9119) 2>/dev/null
+    fi
+}
+
+if dashboard_listening; then
+    echo "Hermes dashboard already running on port 9119."
+else
+    echo "Starting Hermes dashboard (REST API on port 9119)..."
+    cd "$SCRIPT_DIR/Agent"
+    if [ -f .venv/bin/activate ]; then
+        source .venv/bin/activate
+    fi
+    nohup hermes dashboard --no-open --skip-build > /dev/null 2>&1 &
+    echo "Waiting for dashboard to become ready..."
+    for i in $(seq 1 20); do
+        if dashboard_listening; then break; fi
+        sleep 1
+    done
+    if dashboard_listening; then
+        echo "Dashboard is ready."
+    else
+        echo "Warning: Dashboard may still be starting — Desktop connection may fail."
+    fi
+fi
+
+# ------------------------------------------------------------------
 # Start the desktop app in dev mode
 # ------------------------------------------------------------------
 cd "$SCRIPT_DIR/Desktop"
