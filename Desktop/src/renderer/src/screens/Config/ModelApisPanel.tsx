@@ -121,6 +121,9 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customKey, setCustomKey] = useState("");
 
+  // Dynamic custom providers (added at runtime)
+  const [customProviders, setCustomProviders] = useState<ProviderField[]>([]);
+
   function showStatus(text: string, type: "success" | "error") {
     setStatusMsg({ text, type });
     setTimeout(() => setStatusMsg(null), 3000);
@@ -326,8 +329,9 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
   // ------------------------------------------------------------------
 
   const handleAddCustomProvider = useCallback(async () => {
-    if (!customSlug) return;
+    if (!customSlug || !customBaseUrl) return;
     try {
+      // Save API key if provided
       if (customKey) {
         await window.hermesAPI.setEnv(
           `${customSlug.toUpperCase()}_API_KEY`,
@@ -335,23 +339,86 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
           profile,
         );
       }
-      if (customBaseUrl) {
-        await window.hermesAPI.setEnv(
-          `${customSlug.toUpperCase()}_BASE_URL`,
-          customBaseUrl,
-          profile,
-        );
-      }
+      // Save base URL so discovery can find it
+      await window.hermesAPI.setEnv(
+        `${customSlug.toUpperCase()}_BASE_URL`,
+        customBaseUrl,
+        profile,
+      );
+
+      // Register as a dynamic provider so it shows in the grid
+      const label = customLabel || customSlug;
+      setCustomProviders((prev) => {
+        const exists = prev.some((p) => p.slug === customSlug);
+        if (exists) return prev;
+        return [
+          ...prev,
+          {
+            slug: customSlug,
+            label,
+            envKey: `${customSlug.toUpperCase()}_API_KEY`,
+            envBaseUrlKey: `${customSlug.toUpperCase()}_BASE_URL`,
+            description: customBaseUrl,
+          },
+        ];
+      });
+
       setCustomSlug("");
       setCustomLabel("");
       setCustomBaseUrl("");
       setCustomKey("");
-      loadData();
-      showStatus(`Custom provider "${customSlug}" configured`, "success");
+
+      // Auto-discover models from the custom endpoint
+      const result = await window.hermesAPI.discoverProviderModels(
+        customSlug,
+        customBaseUrl || undefined,
+        customKey || undefined,
+        profile,
+      );
+
+      if (result.status === "ok" && result.models.length > 0) {
+        // Save discovered models
+        const existing = await window.hermesAPI.listModels();
+        let added = 0;
+        for (const modelId of result.models) {
+          const alreadyExists = existing.some(
+            (m) => m.model === modelId && m.provider === customSlug,
+          );
+          if (alreadyExists) continue;
+          try {
+            await window.hermesAPI.addModel(
+              modelId,
+              customSlug,
+              modelId,
+              customBaseUrl || "",
+            );
+            added++;
+          } catch {
+            // skip individual failures
+          }
+        }
+        const label2 = result.source === "fallback" ? " (from catalog)" : "";
+        showStatus(
+          added > 0
+            ? `Provider added + ${added} model(s) discovered${label2}`
+            : `Provider "${customSlug}" configured — add models below`,
+          "success",
+        );
+        const models = await window.hermesAPI.listModels();
+        setSavedModels(models);
+      } else {
+        // Discovery failed or returned empty — pre-fill the Add Model form
+        setNewProvider(customSlug);
+        setNewBaseUrl(customBaseUrl);
+        showStatus(
+          `Provider "${customSlug}" added. No models auto-discovered — enter model ID below.`,
+          "success",
+        );
+      }
     } catch {
       showStatus("Failed to configure custom provider", "error");
     }
-  }, [customSlug, customLabel, customBaseUrl, customKey, profile, loadData]);
+  }, [customSlug, customLabel, customBaseUrl, customKey, profile]);
 
   // ------------------------------------------------------------------
   // Render
@@ -405,7 +472,7 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
       </p>
 
       <div className="model-apis-provider-grid">
-        {PROVIDERS.map((p) => {
+        {[...PROVIDERS, ...customProviders].map((p) => {
           const currentKey = envVars[p.envKey] || "";
           const currentBaseUrl = p.envBaseUrlKey
             ? envVars[p.envBaseUrlKey] || ""
@@ -536,7 +603,7 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
         <button
           className="btn-sm btn-primary"
           onClick={handleAddCustomProvider}
-          disabled={!customSlug}
+          disabled={!customSlug || !customBaseUrl}
         >
           Add Provider
         </button>
@@ -592,13 +659,19 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
         />
-        <input
+        <select
           className="input config-input"
-          type="text"
-          placeholder="Provider slug"
           value={newProvider}
           onChange={(e) => setNewProvider(e.target.value)}
-        />
+          style={{ minWidth: 150 }}
+        >
+          <option value="">Select provider...</option>
+          {[...PROVIDERS, ...customProviders].map((p) => (
+            <option key={p.slug} value={p.slug}>
+              {p.label} ({p.slug})
+            </option>
+          ))}
+        </select>
         <input
           className="input config-input"
           type="text"
