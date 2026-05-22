@@ -494,7 +494,7 @@ function setupIPC(): void {
         key.endsWith("_TOKEN") ||
         key === "HF_TOKEN";
       if ((await isGatewayRunning()) && looksLikeCredential) {
-        restartGateway(profile);
+        await restartGateway(profile);
       }
       return true;
     },
@@ -617,7 +617,7 @@ function setupIPC(): void {
           prev.model !== model ||
           prev.baseUrl !== baseUrl)
       ) {
-        restartGateway(profile);
+        await restartGateway(profile);
       }
 
       return true;
@@ -732,7 +732,7 @@ function setupIPC(): void {
       attachments?: Attachment[],
     ) => {
       if (!isRemoteMode() && !(await isGatewayRunning())) {
-        startGateway(profile);
+        await startGateway(profile);
       }
 
       await ensureSshTunnelIfNeeded();
@@ -925,7 +925,7 @@ function setupIPC(): void {
       setPlatformEnabled(platform, enabled, profile);
       // Restart gateway so it picks up the new platform config
       if (await isGatewayRunning()) {
-        restartGateway(profile);
+        await restartGateway(profile);
       }
       return true;
     },

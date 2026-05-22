@@ -242,6 +242,45 @@ function isApiServerReady(): Promise<boolean> {
   });
 }
 
+/** Poll until the API server is ready or timeout is reached.
+ *  Checks both the REST health endpoint (port 9119) and the chat
+ *  completions endpoint (port 8642), since they may come up at different
+ *  times during gateway startup. */
+async function waitForApiServerReady(timeoutMs = 15000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    // First check: is the health endpoint up?
+    if (!(await isApiServerReady())) {
+      await new Promise((r) => setTimeout(r, 300));
+      continue;
+    }
+    // Second check: can we reach the chat API port?
+    const chatReady = await new Promise<boolean>((resolve) => {
+      const url = `${getApiUrl()}/v1/chat/completions`;
+      const mod = url.startsWith("https") ? https : http;
+      const req = mod.request(
+        url,
+        { method: "POST", timeout: 1000, headers: getRemoteAuthHeader() },
+        (res) => {
+          // Any response (even an error) means the port is listening
+          resolve(true);
+          res.resume();
+        },
+      );
+      req.on("error", () => resolve(false));
+      req.on("timeout", () => {
+        req.destroy();
+        resolve(false);
+      });
+      req.write("{}");
+      req.end();
+    });
+    if (chatReady) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
 // ────────────────────────────────────────────────────
 //  Ensure API server is enabled in config
 // ────────────────────────────────────────────────────
@@ -625,7 +664,7 @@ function sendMessageViaApi(
     const msg = err.message || String(err);
     if (msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND")) {
       finish(
-        "Configure an agentic provider first. Go to Settings → Config → Model APIs to set up a provider API key and model.",
+        "Could not reach the Hermes gateway. Make sure the gateway is running on port 8642, then try again.",
       );
     } else {
       finish(`API request failed: ${msg}`);
@@ -1115,10 +1154,13 @@ export async function startGateway(profile?: string): Promise<boolean> {
 
   gatewayStartedByApp = true;
 
-  // Wait a bit then check if API server came up
-  setTimeout(async () => {
-    apiServerAvailable = await isApiServerReady();
-  }, 3000);
+  // Wait for both the health endpoint (port 9119) and the chat API
+  // (port 8642) to come up before returning so callers know the
+  // gateway is fully ready for chat requests.
+  apiServerAvailable = await waitForApiServerReady();
+  if (!apiServerAvailable) {
+    console.warn("Gateway started but API server did not become ready within timeout");
+  }
 
   return true;
 }
@@ -1232,7 +1274,6 @@ export async function restartGateway(profile?: string): Promise<void> {
   }
   if (!gatewayStartedByApp && !(await isGatewayRunning())) return;
   stopGateway(true);
-  setTimeout(() => {
-    startGateway(profile);
-  }, 500);
+  await new Promise((r) => setTimeout(r, 500));
+  await startGateway(profile);
 }
