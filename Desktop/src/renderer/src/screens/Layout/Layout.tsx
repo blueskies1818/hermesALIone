@@ -179,10 +179,33 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
     setCurrentSessionId(null);
   }, []);
 
-  const handleResumeSession = useCallback((sessionId: string) => {
-    setCurrentSessionId(sessionId);
-    goTo("chat");
-  }, [goTo]);
+  const handleDeleteSession = useCallback(
+    (sessionId: string) => {
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setMessages([]);
+      }
+    },
+    [currentSessionId],
+  );
+
+  const handleResumeSession = useCallback(
+    async (sessionId: string) => {
+      setCurrentSessionId(sessionId);
+      setMessages([]);
+      goTo("chat");
+      const raw = await window.hermesAPI.getSessionMessages(sessionId);
+      setMessages(
+        raw.map((m) => ({
+          id: String(m.id),
+          role: (m.role === "assistant" ? "agent" : "user") as "agent" | "user",
+          content: m.content,
+          ...(m.attachments ? { attachments: m.attachments } : {}),
+        })),
+      );
+    },
+    [goTo, setMessages],
+  );
 
   // Listen for menu IPC events (Cmd+N, Cmd+K from app menu)
   useEffect(() => {
@@ -371,6 +394,7 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
             <Sessions
               onResumeSession={handleResumeSession}
               onNewChat={handleNewChat}
+              onDeleteSession={handleDeleteSession}
               currentSessionId={currentSessionId}
               visible={view === "sessions"}
             />

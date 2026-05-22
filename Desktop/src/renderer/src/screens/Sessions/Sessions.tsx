@@ -24,6 +24,7 @@ interface SearchResult {
 interface SessionsProps {
   onResumeSession: (sessionId: string) => void;
   onNewChat: () => void;
+  onDeleteSession: (sessionId: string) => void;
   currentSessionId: string | null;
   visible: boolean;
 }
@@ -165,6 +166,7 @@ const SessionCard = memo(function SessionCard({
 function Sessions({
   onResumeSession,
   onNewChat,
+  onDeleteSession,
   currentSessionId,
   visible,
 }: SessionsProps): React.JSX.Element {
@@ -196,8 +198,9 @@ function Sessions({
       setSearchResults((prev) =>
         prev.filter((r) => r.sessionId !== sessionId),
       );
+      onDeleteSession(sessionId);
     },
-    [],
+    [onDeleteSession],
   );
 
   useEffect(() => {

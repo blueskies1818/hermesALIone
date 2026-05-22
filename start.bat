@@ -50,17 +50,22 @@ if %errorlevel% equ 0 (
 )
 
 echo Starting Hermes dashboard (REST API on port 9119)...
-start "" /B hermes dashboard --no-open --skip-build >nul 2>&1
+set HERMES_LOG=%USERPROFILE%\.hermes\logs\dashboard.log
+start "" /B hermes dashboard --no-open --skip-build >>"%HERMES_LOG%" 2>&1
 
-REM -- Wait for dashboard to become ready (up to 20s) --------------------------
+REM -- Wait for dashboard to become ready (up to 45s) --------------------------
 echo Waiting for dashboard to become ready...
-for /l %%i in (1,1,20) do (
+for /l %%i in (1,1,45) do (
     timeout /t 1 /nobreak >nul
     netstat -ano 2>nul | findstr ":9119" >nul
     if !errorlevel! equ 0 goto dashboard_ready
 )
-echo Warning: Dashboard may still be starting -- Desktop connection may fail.
-goto launch_desktop
+echo.
+echo ERROR: Dashboard did not start on port 9119 after 45 seconds.
+echo Check the log for details: %USERPROFILE%\.hermes\logs\dashboard.log
+echo.
+pause
+exit /b 1
 
 :dashboard_ready
 echo Dashboard is ready.
