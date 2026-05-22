@@ -129,9 +129,13 @@ function Chat({
     addAgentMessage,
   });
 
+  // Use the IPC-assigned session ID when active; fall back to the resumed
+  // session prop so that replies continue the correct session.
+  const effectiveSessionId = hermesSessionId ?? sessionId;
+
   const actions = useChatActions({
     profile,
-    hermesSessionId,
+    hermesSessionId: effectiveSessionId,
     messages,
     isLoading,
     setIsLoading,
@@ -233,8 +237,8 @@ function Chat({
         <ChatInput
           ref={chatInputRef}
           isLoading={isLoading}
-          hasSession={!!hermesSessionId}
-          sessionId={hermesSessionId}
+          hasSession={!!effectiveSessionId}
+          sessionId={effectiveSessionId}
           remoteMode={remoteMode}
           onSubmit={actions.handleSend}
           onQuickAsk={actions.handleQuickAsk}
