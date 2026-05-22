@@ -792,13 +792,20 @@ function setupIPC(): void {
           },
           onError: (error) => {
             currentChatAbort = null;
-            event.sender.send("chat-error", error);
-            rejectChat(new Error(error));
+            // Sanitize API key fragments that providers may embed in error
+            // messages (e.g. "api key: ****47f9 is invalid"). Replace
+            // asterisk-prefixed hex/alphanumeric runs with [redacted]
+            // and scrub known "key: value" patterns.
+            const sanitized = error
+              .replace(/[*]{2,}[a-zA-Z0-9]{4,}/g, "[redacted]")
+              .replace(/\b(api[_\s]?key[:\s]*)\S+/gi, "$1[redacted]");
+            event.sender.send("chat-error", sanitized);
+            rejectChat(new Error(sanitized));
             // Notify on error too if window not focused
             if (mainWindow && !mainWindow.isFocused()) {
               new Notification({
                 title: "Hermes Agent — Error",
-                body: error.slice(0, 100),
+                body: sanitized.slice(0, 100),
               }).show();
             }
           },

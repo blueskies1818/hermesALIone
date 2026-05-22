@@ -5,6 +5,7 @@ import type { ChatMessage } from "./types";
 interface MessageListProps {
   messages: ChatMessage[];
   isLoading: boolean;
+  streamStarted: boolean;
   toolProgress: string | null;
   onApprove: () => void;
   onDeny: () => void;
@@ -36,6 +37,7 @@ function TypingIndicator({
 export const MessageList = memo(function MessageList({
   messages,
   isLoading,
+  streamStarted,
   toolProgress,
   onApprove,
   onDeny,
@@ -61,11 +63,11 @@ export const MessageList = memo(function MessageList({
         />
       ))}
 
-      {isLoading && !lastMessageIsAgent && (
+      {isLoading && streamStarted && !lastMessageIsAgent && (
         <TypingIndicator toolProgress={toolProgress} />
       )}
 
-      {isLoading && toolProgress && lastMessageIsAgent && (
+      {isLoading && streamStarted && toolProgress && lastMessageIsAgent && (
         <div className="chat-tool-progress-inline">{toolProgress}</div>
       )}
     </>

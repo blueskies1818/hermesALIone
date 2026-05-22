@@ -13,6 +13,7 @@ interface UseChatActionsArgs {
   messages: ChatMessage[];
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
+  setStreamStarted: (started: boolean) => void;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onSessionStarted?: () => void;
   chatInputRef: React.RefObject<ChatInputHandle | null>;
@@ -39,6 +40,7 @@ export function useChatActions({
   messages,
   isLoading,
   setIsLoading,
+  setStreamStarted,
   setMessages,
   onSessionStarted,
   chatInputRef,
@@ -99,6 +101,7 @@ export function useChatActions({
       }
 
       setIsLoading(true);
+      setStreamStarted(false);
       pushUser(text, "user", attachments);
       onSessionStarted?.();
       await sendToAgent(text, attachments);
@@ -110,6 +113,7 @@ export function useChatActions({
     async (text: string, attachments?: Attachment[]): Promise<void> => {
       if (!text || isLoadingRef.current) return;
       setIsLoading(true);
+      setStreamStarted(false);
       pushUser(`💭 ${text}`, "user-btw", attachments);
       await sendToAgent(`/btw ${text}`, attachments);
     },
@@ -119,22 +123,25 @@ export function useChatActions({
   const handleAbort = useCallback(() => {
     window.hermesAPI.abortChat();
     setIsLoading(false);
+    setStreamStarted(false);
     setTimeout(() => chatInputRef.current?.focus(), 50);
-  }, [chatInputRef, setIsLoading]);
+  }, [chatInputRef, setIsLoading, setStreamStarted]);
 
   const handleApprove = useCallback(() => {
     chatInputRef.current?.clear();
     setIsLoading(true);
+    setStreamStarted(false);
     pushUser("/approve", "user-approve");
     sendToAgent("/approve").catch(() => setIsLoading(false));
-  }, [chatInputRef, pushUser, sendToAgent, setIsLoading]);
+  }, [chatInputRef, pushUser, sendToAgent, setIsLoading, setStreamStarted]);
 
   const handleDeny = useCallback(() => {
     chatInputRef.current?.clear();
     setIsLoading(true);
+    setStreamStarted(false);
     pushUser("/deny", "user-deny");
     sendToAgent("/deny").catch(() => setIsLoading(false));
-  }, [chatInputRef, pushUser, sendToAgent, setIsLoading]);
+  }, [chatInputRef, pushUser, sendToAgent, setIsLoading, setStreamStarted]);
 
   return { handleSend, handleQuickAsk, handleAbort, handleApprove, handleDeny };
 }

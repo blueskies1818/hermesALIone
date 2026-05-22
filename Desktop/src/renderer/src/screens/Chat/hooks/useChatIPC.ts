@@ -6,6 +6,7 @@ interface UseChatIPCArgs {
   setHermesSessionId: (id: string) => void;
   setToolProgress: (tool: string | null) => void;
   setIsLoading: (loading: boolean) => void;
+  setStreamStarted: (started: boolean) => void;
   setUsage: React.Dispatch<React.SetStateAction<UsageState | null>>;
 }
 
@@ -20,10 +21,12 @@ export function useChatIPC({
   setHermesSessionId,
   setToolProgress,
   setIsLoading,
+  setStreamStarted,
   setUsage,
 }: UseChatIPCArgs): void {
   useEffect(() => {
     const cleanupChunk = window.hermesAPI.onChatChunk((chunk) => {
+      setStreamStarted(true);
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last && last.role === "agent") {
@@ -44,6 +47,7 @@ export function useChatIPC({
     const cleanupDone = window.hermesAPI.onChatDone((sessionId) => {
       if (sessionId) setHermesSessionId(sessionId);
       setToolProgress(null);
+      setStreamStarted(false);
       setIsLoading(false);
     });
 
@@ -57,10 +61,12 @@ export function useChatIPC({
         },
       ]);
       setToolProgress(null);
+      setStreamStarted(false);
       setIsLoading(false);
     });
 
     const cleanupToolProgress = window.hermesAPI.onChatToolProgress((tool) => {
+      setStreamStarted(true);
       setToolProgress(tool);
     });
 
@@ -85,6 +91,7 @@ export function useChatIPC({
     setHermesSessionId,
     setToolProgress,
     setIsLoading,
+    setStreamStarted,
     setUsage,
   ]);
 }

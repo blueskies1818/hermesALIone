@@ -34,6 +34,7 @@ function Chat({
 }: ChatProps): React.JSX.Element {
   const { t } = useI18n();
   const [isLoading, setIsLoading] = useState(false);
+  const [streamStarted, setStreamStarted] = useState(false);
   const [hermesSessionId, setHermesSessionId] = useState<string | null>(null);
   const [toolProgress, setToolProgress] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageState | null>(null);
@@ -66,6 +67,7 @@ function Chat({
     setHermesSessionId,
     setToolProgress,
     setIsLoading,
+    setStreamStarted,
     setUsage,
   });
 
@@ -106,6 +108,7 @@ function Chat({
       window.hermesAPI.abortChat();
       setIsLoading(false);
     }
+    setStreamStarted(false);
     const idToDelete = hermesSessionId ?? sessionId;
     if (idToDelete) {
       void window.hermesAPI.deleteSession(idToDelete);
@@ -115,7 +118,7 @@ function Chat({
     setHermesSessionId(null);
     setUsage(null);
     setToolProgress(null);
-  }, [isLoading, hermesSessionId, sessionId, setMessages]);
+  }, [isLoading, hermesSessionId, sessionId, setMessages, setStreamStarted]);
 
   const localCommands = useLocalCommands({
     profile,
@@ -132,6 +135,7 @@ function Chat({
     messages,
     isLoading,
     setIsLoading,
+    setStreamStarted,
     setMessages,
     onSessionStarted,
     chatInputRef,
@@ -216,6 +220,7 @@ function Chat({
           <MessageList
             messages={messages}
             isLoading={isLoading}
+            streamStarted={streamStarted}
             toolProgress={toolProgress}
             onApprove={actions.handleApprove}
             onDeny={actions.handleDeny}
