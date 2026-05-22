@@ -1018,7 +1018,12 @@ def _get_env_config() -> Dict[str, Any]:
     # remote home, Vercel uses its documented workspace root, and everything
     # else starts in the backend's default root-like cwd.
     if env_type == "local":
-        default_cwd = os.getcwd()
+        # On Windows, os.getcwd() returns a Windows path (C:\...) that bash
+        # cannot resolve. Use the user home directory as a safe universal default.
+        if platform.system() == "Windows":
+            default_cwd = str(Path.home())
+        else:
+            default_cwd = os.getcwd()
     elif env_type == "ssh":
         default_cwd = "~"
     elif env_type == "vercel_sandbox":
