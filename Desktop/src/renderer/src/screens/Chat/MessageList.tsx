@@ -63,8 +63,8 @@ export const MessageList = memo(function MessageList({
         />
       ))}
 
-      {isLoading && streamStarted && !lastMessageIsAgent && (
-        <TypingIndicator toolProgress={toolProgress} />
+      {isLoading && !lastMessageIsAgent && (
+        <TypingIndicator toolProgress={streamStarted ? toolProgress : null} />
       )}
 
       {isLoading && streamStarted && toolProgress && lastMessageIsAgent && (

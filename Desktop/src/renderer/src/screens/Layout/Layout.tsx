@@ -196,12 +196,14 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
       goTo("chat");
       const raw = await window.hermesAPI.getSessionMessages(sessionId);
       setMessages(
-        raw.map((m) => ({
-          id: String(m.id),
-          role: (m.role === "assistant" ? "agent" : "user") as "agent" | "user",
-          content: m.content,
-          ...(m.attachments ? { attachments: m.attachments } : {}),
-        })),
+        raw
+          .filter((m) => (m.role === "user" || m.role === "assistant") && m.content.trim())
+          .map((m) => ({
+            id: String(m.id),
+            role: (m.role === "assistant" ? "agent" : "user") as "agent" | "user",
+            content: m.content,
+            ...(m.attachments ? { attachments: m.attachments } : {}),
+          })),
       );
     },
     [goTo, setMessages],
