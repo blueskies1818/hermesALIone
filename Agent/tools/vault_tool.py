@@ -173,11 +173,42 @@ def _index_bucket(conn, vault_dir: Path, bucket_id: str,
 # Handlers
 # ---------------------------------------------------------------------------
 
+def _auto_discover_buckets(conn, vault_dir: Path) -> None:
+    """Register any vault subdirectories not yet in the DB.
+
+    Called before every list so the UI always reflects what is on disk,
+    even when the agent wrote files directly without calling vault_create_bucket.
+    """
+    known_ids = {row["id"] for row in conn.execute("SELECT id FROM buckets").fetchall()}
+    for child in sorted(vault_dir.iterdir()):
+        if not child.is_dir() or child.name.startswith(".") or child.name == "__pycache__":
+            continue
+        if child.name in known_ids:
+            continue
+        bj = child / "bucket.json"
+        if bj.exists():
+            try:
+                meta = json.loads(bj.read_text(encoding="utf-8"))
+                vault_db.upsert_bucket(conn, child.name,
+                                       meta.get("name", child.name),
+                                       meta.get("description", ""),
+                                       child.name)
+            except Exception:
+                vault_db.upsert_bucket(conn, child.name, child.name, "", child.name)
+        else:
+            vault_db.upsert_bucket(conn, child.name, child.name, "", child.name)
+        known_ids.add(child.name)
+    conn.commit()
+
+
 def _handle_list_buckets(args: Dict, **kw) -> str:
     vault_dir = _vault_dir()
     try:
         conn = _get_conn()
         try:
+            # Auto-register any on-disk folders not yet in the DB so the UI
+            # always reflects what the agent wrote, even without a prior reindex.
+            _auto_discover_buckets(conn, vault_dir)
             # Refresh stale flags before listing
             vault_db.refresh_stale_flags(conn, vault_dir)
             buckets = vault_db.list_buckets(conn)
