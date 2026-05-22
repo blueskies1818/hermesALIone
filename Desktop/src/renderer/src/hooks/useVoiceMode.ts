@@ -21,6 +21,12 @@ export interface VoiceSession {
   error: string;
 }
 
+export interface VoiceMessage {
+  id: string;
+  role: "user" | "agent";
+  content: string;
+}
+
 // ---------------------------------------------------------------------------
 // VAD constants (mirrors voice_mode.py)
 // ---------------------------------------------------------------------------
@@ -45,6 +51,8 @@ export function useVoiceMode(
     transcript: "",
     error: "",
   });
+
+  const [messages, setMessages] = useState<VoiceMessage[]>([]);
 
   const playbackRef = useRef<AudioPlayback | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -139,6 +147,10 @@ export function useVoiceMode(
         const result = await window.hermesAPI.sendAudio(base64);
         if (result.success && result.transcript) {
           setSession((prev) => ({ ...prev, transcript: result.transcript }));
+          setMessages((prev) => [
+            ...prev,
+            { id: `user-${Date.now()}`, role: "user", content: result.transcript },
+          ]);
           setVoiceState("thinking");
         } else {
           setVoiceState(
@@ -313,10 +325,32 @@ export function useVoiceMode(
   useEffect(() => {
     playbackRef.current = new AudioPlayback();
 
-    const cleanup = window.hermesAPI.onTtsAudio(handleTtsAudio);
+    // Capture text chunks so we can display agent responses alongside TTS audio.
+    // Each new agent turn starts a fresh message on the first chunk.
+    let agentMsgId = "";
+    const cleanupChunk = window.hermesAPI.onChatChunk((chunk) => {
+      if (!chunk.trim()) return;
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === "agent" && last.id === agentMsgId) {
+          return [
+            ...prev.slice(0, -1),
+            { ...last, content: last.content + chunk },
+          ];
+        }
+        agentMsgId = `agent-${Date.now()}`;
+        return [
+          ...prev,
+          { id: agentMsgId, role: "agent", content: chunk },
+        ];
+      });
+    });
+
+    const cleanupTts = window.hermesAPI.onTtsAudio(handleTtsAudio);
 
     return () => {
-      cleanup();
+      cleanupChunk();
+      cleanupTts();
       stopVadInternal();
       playbackRef.current?.close();
     };
@@ -330,6 +364,7 @@ export function useVoiceMode(
 
   return {
     session,
+    messages,
     startListening,
     stopAndTranscribe,
     interrupt,

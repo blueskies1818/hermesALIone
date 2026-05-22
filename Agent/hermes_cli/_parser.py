@@ -70,6 +70,8 @@ Examples:
     hermes logs --since 1h        Lines from the last hour
     hermes debug share             Upload debug report for support
     hermes update                 Update to latest version
+    hermes ssh-keygen             Generate SSH key for desktop pairing
+    hermes connect                Show desktop connection mode help
     hermes dashboard              Start web UI dashboard (port 9119)
     hermes dashboard --stop       Stop running dashboard processes
     hermes dashboard --status     List running dashboard processes

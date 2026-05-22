@@ -34,6 +34,8 @@ Usage:
     hermes honcho identity                 # Show AI peer identity representation
     hermes honcho identity <file>          # Seed AI peer identity from a file (SOUL.md etc.)
     hermes honcho migrate                  # Step-by-step migration guide: OpenClaw native → Hermes + Honcho
+    hermes ssh-keygen          Generate SSH key for desktop-to-backend pairing
+    hermes connect             Show help for desktop connection modes
     hermes version             Show version
     hermes update              Update to latest version
     hermes uninstall           Uninstall Hermes Agent
@@ -5915,6 +5917,125 @@ def cmd_version(args):
             print("Up to date")
     except Exception:
         pass
+
+
+def cmd_ssh_keygen(args):
+    """Generate an SSH key for Hermes desktop-to-backend pairing.
+
+    Creates an ed25519 key, prints the public key, the ssh-copy-id command,
+    and a field-by-field guide for the desktop Connect page.
+    """
+    import subprocess
+    from pathlib import Path
+
+    key_path = Path(args.key_file).expanduser().resolve()
+    comment = args.comment or "hermes-desktop"
+
+    if key_path.exists():
+        print(f"Key already exists: {key_path}")
+        print("To overwrite, delete it first or use --key-file for a different path.")
+        print(f"\nPublic key ({key_path}.pub):")
+        try:
+            print(key_path.with_suffix(key_path.suffix + ".pub").read_text().strip())
+        except Exception:
+            print("(could not read public key)")
+        return
+
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"Generating ed25519 key: {key_path}")
+    result = subprocess.run(
+        [
+            "ssh-keygen",
+            "-t", "ed25519",
+            "-f", str(key_path),
+            "-N", args.passphrase or "",
+            "-C", comment,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"ssh-keygen failed: {result.stderr.strip() or 'unknown error'}")
+        return
+
+    print(result.stdout.strip())
+    if result.stderr.strip():
+        print(result.stderr.strip())
+
+    pubkey_path = key_path.with_suffix(key_path.suffix + ".pub")
+    try:
+        pubkey = pubkey_path.read_text().strip()
+    except Exception:
+        pubkey = "(could not read public key)"
+
+    print(f"\n── Public key ──")
+    print(pubkey)
+
+    print(f"\n── Authorize the key on the remote host ──")
+    print(f"ssh-copy-id -i {key_path} <user>@<host>")
+    print(f"\n  Replace <user> with the remote username and <host> with the remote")
+    print(f"  hostname or IP address. You'll be prompted for the remote password once.")
+
+    print(f"\n── Desktop Connect page — fill in these values ──")
+    print(f"  SSH Host:     <remote hostname or IP>")
+    print(f"  SSH Port:     22")
+    print(f"  SSH User:     <username on remote>")
+    print(f"  Key Path:     {key_path}")
+    print(f"  Remote Port:  9119")
+    print(f"\n  The Remote Port is the Hermes dashboard port on the remote machine.")
+    print(f"  The default is 9119 unless you changed it in the remote config.")
+
+
+def cmd_connect(args):
+    """Show help for connecting the desktop app to a Hermes backend.
+
+    Explains all three connection modes and what goes in each field.
+    """
+    print("Hermes Desktop Connection Help")
+    print("===============================")
+    print()
+    print("The desktop app can connect to the Hermes backend in three ways:")
+    print()
+
+    print("── Local ──")
+    print("  The Hermes Agent runs on this machine. Everything is local.")
+    print("  Make sure the gateway is running (./start.sh or ./start.bat).")
+    print("  The dashboard REST API runs on port 9119 by default.")
+    print("  No additional configuration needed — just click Connect.")
+    print()
+
+    print("── Remote ──")
+    print("  Connect to a Hermes gateway on another machine over HTTP.")
+    print("  The remote machine must be running the gateway and dashboard.")
+    print()
+    print("  Fields:")
+    print("    Server URL:  http://<remote-host>:9119")
+    print("                 The full URL to the remote dashboard REST API.")
+    print("    API Key:     (optional) The API_SERVER_KEY from the remote's .env")
+    print("                 file if the gateway requires authentication.")
+    print()
+
+    print("── SSH ──")
+    print("  Connect via an SSH tunnel. The desktop creates a secure")
+    print("  tunnel to the remote host and routes all traffic through it.")
+    print("  All file operations (skills, memory, config) work over SSH exec.")
+    print()
+    print("  Prerequisites:")
+    print("    1. The remote host must be running the Hermes dashboard (port 9119).")
+    print("    2. You must have SSH access with key-based auth to the remote host.")
+    print("    3. Run 'hermes ssh-keygen' on this machine to generate a key.")
+    print("    4. Run the ssh-copy-id command it prints to authorize the key.")
+    print()
+    print("  Fields:")
+    print("    SSH Host:      Remote hostname or IP address.")
+    print("    SSH Port:      SSH port (usually 22).")
+    print("    SSH User:      Your username on the remote host.")
+    print("    Key Path:      Path to your private SSH key.")
+    print("                   Default: ~/.ssh/id_ed25519_hermes")
+    print("    Remote Port:   Hermes dashboard port on the remote (default 9119).")
+    print()
 
 
 def cmd_uninstall(args):
@@ -12622,6 +12743,46 @@ Examples:
         help="Windows: proceed with the update even when another hermes.exe is detected. The concurrent process will likely cause WinError 32 warnings and may leave a reboot-deferred .exe replacement.",
     )
     update_parser.set_defaults(func=cmd_update)
+
+    # =========================================================================
+    # ssh-keygen command
+    # =========================================================================
+    ssh_keygen_parser = subparsers.add_parser(
+        "ssh-keygen",
+        help="Generate an SSH key for desktop-to-backend pairing",
+        description="Generate an ed25519 SSH key, print the public key, "
+        "the ssh-copy-id command, and the desktop Connect page field values.",
+    )
+    ssh_keygen_parser.add_argument(
+        "--key-file",
+        "-f",
+        default="~/.ssh/id_ed25519_hermes",
+        help="Path for the new private key (default: ~/.ssh/id_ed25519_hermes)",
+    )
+    ssh_keygen_parser.add_argument(
+        "--comment",
+        "-C",
+        default="hermes-desktop",
+        help="Key comment (default: hermes-desktop)",
+    )
+    ssh_keygen_parser.add_argument(
+        "--passphrase",
+        "-N",
+        default="",
+        help="Key passphrase (default: none)",
+    )
+    ssh_keygen_parser.set_defaults(func=cmd_ssh_keygen)
+
+    # =========================================================================
+    # connect command
+    # =========================================================================
+    connect_parser = subparsers.add_parser(
+        "connect",
+        help="Show help for pairing the desktop app to a Hermes backend",
+        description="Explain the three desktop connection modes (local, "
+        "remote, SSH) and what goes in each field.",
+    )
+    connect_parser.set_defaults(func=cmd_connect)
 
     # =========================================================================
     # uninstall command

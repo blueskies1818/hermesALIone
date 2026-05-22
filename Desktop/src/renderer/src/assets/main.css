@@ -8180,6 +8180,58 @@ body {
   background: rgba(0, 255, 204, 0.08);
 }
 
+/* ── Voice message transcript overlay ──────────────────────────── */
+
+.assistant-messages {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, 90vw);
+  max-height: calc(100% - 200px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  pointer-events: none;
+  z-index: 5;
+  scrollbar-width: none;
+}
+
+.assistant-messages::-webkit-scrollbar {
+  display: none;
+}
+
+.assistant-msg {
+  max-width: 85%;
+  padding: 4px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+  animation: assistant-msg-in 0.2s ease-out;
+}
+
+.assistant-msg-user {
+  align-self: flex-end;
+  background: rgba(0, 255, 204, 0.12);
+  color: var(--text-primary);
+  border: 1px solid rgba(0, 255, 204, 0.18);
+}
+
+.assistant-msg-agent {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@keyframes assistant-msg-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ── Model selector (Assistant tab) ────────────────────────────── */
 
 .model-selector {

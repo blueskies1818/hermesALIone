@@ -11,12 +11,12 @@ interface AssistantProps {
 
 function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
-  const idleTimeRef = useRef<number>(0);
   // Normalization state — exponential smoothing + decaying peak tracker
   const smoothedRef = useRef<Float32Array | null>(null);
   const peakRef = useRef<number>(30);
@@ -43,6 +43,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
   const {
     session: voiceSession,
+    messages,
     startListening,
     stopAndTranscribe,
     interrupt,
@@ -62,30 +63,18 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
-    const baseRadius = 80;
+    const baseRadius = 95;
     const len = analyser ? (dataArray ? dataArray.length : 256) : 256;
     // Only the first half of frequency bins carry meaningful voice content.
     // We mirror them back around the circle so the whole ring stays active.
     const halfLen = Math.floor(len / 2);
 
-    // Use real mic data if available, otherwise generate synthetic idle wave
+    // Read mic data when available; otherwise leave array zeroed (no passive animation).
     if (analyser && dataArray) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       analyser.getByteFrequencyData(dataArray as any);
-    } else {
-      idleTimeRef.current += 0.016;
-      const t = idleTimeRef.current;
-      if (!dataArrayRef.current) {
-        dataArrayRef.current = new Uint8Array(len);
-      }
-      const arr = dataArrayRef.current;
-      // Generate values only for the visible half-range so the phase spans the full arc
-      for (let i = 0; i <= halfLen; i++) {
-        const angle = (i / halfLen) * Math.PI * 2;
-        const wave = Math.sin(angle * 3 + t * 0.7) * 0.5 + 0.5;
-        const pulse = Math.sin(t * 1.3) * 0.5 + 0.5;
-        arr[i] = Math.floor((wave * pulse * 30 + 5) * (0.7 + pulse * 0.3));
-      }
+    } else if (!dataArrayRef.current) {
+      dataArrayRef.current = new Uint8Array(len);
     }
 
     const rawArr = dataArrayRef.current!;
@@ -96,13 +85,13 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     }
     const smoothed = smoothedRef.current;
     const SMOOTH = 0.65;
+    // Noise floor cuts DC bias / mic hiss so silent bins render as flat zero
+    const NOISE_FLOOR = 10;
     let maxVal = 0;
     for (let i = 0; i <= halfLen; i++) {
       smoothed[i] = SMOOTH * smoothed[i] + (1 - SMOOTH) * rawArr[i];
       if (smoothed[i] > maxVal) maxVal = smoothed[i];
     }
-    // Peak decays slowly so visualizer always reflects current amplitude scale.
-    // Target height of 60px caps the ribbon at 2/3 of the passive animation's natural ceiling.
     peakRef.current = Math.max(peakRef.current * 0.992, Math.max(maxVal, 20));
     const normFactor = 60 / peakRef.current;
 
@@ -115,7 +104,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     // Mirroring: first half traverses bins 0→halfLen, second half mirrors halfLen→0.
     // Both endpoints land on bin 0, guaranteeing a seamless join with no hard cutoff.
     // Start angle at -π/2 so the peak sits at 12 o'clock.
-    const gradient = ctx.createRadialGradient(cx, cy, baseRadius, cx, cy, baseRadius + 100);
+    const gradient = ctx.createRadialGradient(cx, cy, baseRadius, cx, cy, baseRadius + 120);
     gradient.addColorStop(0, "#00ffcc");
     gradient.addColorStop(0.5, "#00ffcc");
     gradient.addColorStop(1, "#ff007f");
@@ -125,7 +114,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
       const idx = i % len;
       const angle = (idx / len) * Math.PI * 2 - Math.PI / 2;
       const bin = idx <= halfLen ? idx : len - idx;
-      const barHeight = smoothed[bin] * normFactor;
+      const barHeight = 4 + Math.max(0, smoothed[bin] - NOISE_FLOOR) * normFactor;
       const x = cx + Math.cos(angle) * (baseRadius + barHeight);
       const y = cy + Math.sin(angle) * (baseRadius + barHeight);
       if (i === 0) ctx.moveTo(x, y);
@@ -146,9 +135,9 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     ctx.strokeStyle = "rgba(0,255,204,0.4)";
     ctx.stroke();
 
-    // Center pulse circle — average only the visible bins
+    // Center pulse circle — average floor-subtracted values to match ribbon energy
     let sum = 0;
-    for (let i = 0; i <= halfLen; i++) sum += smoothed[i];
+    for (let i = 0; i <= halfLen; i++) sum += Math.max(0, smoothed[i] - NOISE_FLOOR);
     const avg = sum / (halfLen + 1);
 
     ctx.beginPath();
@@ -159,9 +148,8 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     rafRef.current = requestAnimationFrame(draw);
   }, []);
 
-  // Start passive idle animation immediately
+  // Start the render loop
   useEffect(() => {
-    idleTimeRef.current = performance.now() / 1000;
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
   }, [draw]);
@@ -257,6 +245,11 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     }
   }, [voiceSession.state, voiceSession.transcript, profile]);
 
+  // Auto-scroll messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
   // ------------------------------------------------------------------
   // Wire IPC events to voice mode callbacks
   // ------------------------------------------------------------------
@@ -325,6 +318,21 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
       <canvas ref={canvasRef} width={500} height={500} />
 
+      {/* Voice conversation transcript */}
+      {messages.length > 0 && (
+        <div className="assistant-messages">
+          {messages.map((m) => (
+            <div
+              key={m.id}
+              className={`assistant-msg ${m.role === "user" ? "assistant-msg-user" : "assistant-msg-agent"}`}
+            >
+              {m.content}
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      )}
+
       {hintText && (
         <div className={`assistant-mic-hint ${micState === "error" || voiceState === "error" ? "assistant-mic-error" : ""}`}>
           {hintText}
@@ -342,27 +350,6 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
              voiceState === "thinking" ? "Agent thinking" :
              voiceState === "speaking" ? "Agent speaking" : ""}
           </span>
-        </div>
-      )}
-
-      {/* PTT buttons — shown when mic is active */}
-      {micActive && micState !== "checking" && (
-        <div className="assistant-controls">
-          {voiceState === "idle" && (
-            <button className="assistant-btn" onClick={startListening}>
-              Start Listening
-            </button>
-          )}
-          {voiceState === "recording" && (
-            <button className="assistant-btn" onClick={(e) => { e.stopPropagation(); stopAndTranscribe(); }}>
-              Stop & Transcribe
-            </button>
-          )}
-          {(voiceState === "thinking" || voiceState === "speaking") && (
-            <button className="assistant-btn assistant-btn-danger" onClick={(e) => { e.stopPropagation(); interrupt(); }}>
-              Interrupt
-            </button>
-          )}
         </div>
       )}
 
