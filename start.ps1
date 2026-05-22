@@ -60,12 +60,13 @@ else {
     if (Test-Path ".venv\Scripts\Activate.ps1") {
         . ".venv\Scripts\Activate.ps1"
     }
+    $hermesLog = "$env:USERPROFILE\.hermes\logs\dashboard.log"
     $dashJob = Start-Job -Name "HermesDashboard" -ScriptBlock {
         Set-Location $using:ScriptDir\Agent
-        hermes dashboard --no-open --skip-build 2>&1 | Out-Null
+        hermes dashboard --no-open --skip-build 2>&1 | Out-File -Append -Encoding utf8 $using:hermesLog
     }
     Write-Host "Waiting for dashboard to become ready..."
-    for ($i = 0; $i -lt 20; $i++) {
+    for ($i = 0; $i -lt 45; $i++) {
         Start-Sleep -Seconds 1
         if (Get-NetTCPConnection -LocalPort 9119 -ErrorAction SilentlyContinue) { break }
     }
@@ -73,7 +74,12 @@ else {
         Write-Host "Dashboard is ready."
     }
     else {
-        Write-Host "Warning: Dashboard may still be starting — Desktop connection may fail."
+        Write-Host ""
+        Write-Host "ERROR: Dashboard did not start on port 9119 after 45 seconds."
+        Write-Host "Check the log for details: $hermesLog"
+        Write-Host ""
+        Read-Host "Press Enter to exit"
+        exit 1
     }
     Pop-Location
 }
