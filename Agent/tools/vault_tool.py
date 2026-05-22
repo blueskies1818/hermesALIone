@@ -401,12 +401,16 @@ def _handle_reindex(args: Dict, **kw) -> str:
                     bkt_meta.get("path", bkt_id),
                 )
 
-            # Also discover bucket.json files not yet in index.json
+            # Discover any subdirectory not yet registered — with or without
+            # bucket.json. This recovers folders written directly by the agent
+            # via write_file without calling vault_create_bucket first.
             for child in sorted(vault_dir.iterdir()):
                 if not child.is_dir() or child.name.startswith("."):
                     continue
+                if child.name in index.get("buckets", {}):
+                    continue
                 bj = child / "bucket.json"
-                if bj.exists() and child.name not in index.get("buckets", {}):
+                if bj.exists():
                     try:
                         meta = json.loads(bj.read_text(encoding="utf-8"))
                         vault_db.upsert_bucket(
@@ -418,6 +422,11 @@ def _handle_reindex(args: Dict, **kw) -> str:
                         )
                     except Exception:
                         pass
+                else:
+                    # No bucket.json — register using the directory name as-is
+                    vault_db.upsert_bucket(
+                        conn, child.name, child.name, "", child.name
+                    )
 
             buckets = vault_db.list_buckets(conn)
             if bucket_filter:

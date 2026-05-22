@@ -36,9 +36,17 @@ Use `search_files` for both filename and content searches. Prefer this over `gre
 - For filenames, use `search_files` with `target: "files"` and a filename `pattern`.
 - For note contents, use `search_files` with `target: "content"`, the content regex as `pattern`, and `file_glob: "*.md"` when you want to restrict matches to markdown notes.
 
+## Create a bucket (first time only)
+
+Before writing notes to a new folder, call `vault_create_bucket` with the bucket name. This registers the folder in the vault database so the desktop UI can display it. Without this step the files exist on disk but the UI shows nothing.
+
+After creating a bucket (or if you wrote files without calling vault_create_bucket first), call `vault_reindex` so the desktop picks up the new content.
+
 ## Create a note
 
 Use `write_file` with the resolved absolute path and the full markdown content. Prefer this over shell heredocs or `echo` because it avoids shell quoting issues and returns structured results.
+
+After writing notes, call `vault_reindex` so the desktop UI reflects the new files.
 
 ## Append to a note
 
