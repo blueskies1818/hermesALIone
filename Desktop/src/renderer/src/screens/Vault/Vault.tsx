@@ -544,6 +544,7 @@ function VaultGraph({ buckets, bucketTrees, onOpenFile }: {
   onOpenFile: (node: TreeNode) => void;
 }): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [nodeCount, setNodeCount] = useState(0);
   const simRef = useRef<{
     nodes: GNode[]; edges: GEdge[];
     pan: {x:number;y:number}; zoom: number;
@@ -568,6 +569,7 @@ function VaultGraph({ buckets, bucketTrees, onOpenFile }: {
       fresh.push(prev ? { ...prev, label: p.label } : { ...p, vx:0, vy:0, pinned:false });
     }
     sim.nodes = fresh;
+    setNodeCount(fresh.length);
   }, [buckets, bucketTrees]);
 
   // Fetch wikilinks
@@ -739,18 +741,26 @@ function VaultGraph({ buckets, bucketTrees, onOpenFile }: {
     if (hit) onOpenFile({name:hit.label+".md",relPath:hit.relPath,fullPath:hit.fullPath,type:"file",children:undefined});
   },[toGraph,hitNode,onOpenFile]);
 
-  const onWheel=useCallback((e:React.WheelEvent<HTMLCanvasElement>)=>{
-    e.preventDefault();
-    const sim=simRef.current;
-    sim.zoom=Math.max(0.15,Math.min(5,sim.zoom*(e.deltaY>0?0.92:1.09)));
-  },[]);
+  // Wheel zoom — must be non-passive to call preventDefault
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const sim = simRef.current;
+      sim.zoom = Math.max(0.15, Math.min(5, sim.zoom * (e.deltaY > 0 ? 0.92 : 1.09)));
+    };
+    canvas.addEventListener("wheel", handler, { passive: false });
+    return () => canvas.removeEventListener("wheel", handler);
+  }, []);
 
-  const hasFiles = buckets.some(b => (bucketTrees[b.id]?.tree?.length ?? 0) > 0);
+  const hasNodes = nodeCount > 0;
+  const bucketsLoaded = buckets.length > 0;
 
-  if (!hasFiles) return (
+  if (!bucketsLoaded) return (
     <div className="vault-note-placeholder">
       <FileText size={32} style={{opacity:0.2}}/>
-      <span>Select a file to open it</span>
+      <span>No knowledge bases — create one in the Knowledge Bases tab</span>
     </div>
   );
 
@@ -758,8 +768,14 @@ function VaultGraph({ buckets, bucketTrees, onOpenFile }: {
     <div className="vault-graph-wrap">
       <canvas ref={canvasRef} className="vault-graph-canvas"
         onMouseMove={onMouseMove} onMouseDown={onMouseDown}
-        onMouseUp={onMouseUp} onClick={onClick} onWheel={onWheel}
+        onMouseUp={onMouseUp} onClick={onClick}
       />
+      {!hasNodes && (
+        <div className="vault-graph-empty">
+          <FileText size={28} style={{opacity:0.2}}/>
+          <span>Add files to your knowledge bases to see the graph</span>
+        </div>
+      )}
       <div className="vault-graph-legend">
         {buckets.map((b,i)=>(
           <span key={b.id} className="vault-graph-legend-item">

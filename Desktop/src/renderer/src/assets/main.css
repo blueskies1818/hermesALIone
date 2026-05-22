@@ -7058,6 +7058,18 @@ body {
   font-family: monospace;
   pointer-events: none;
 }
+.vault-graph-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
 
 /* Small helpers */
 .vault-empty-small {
