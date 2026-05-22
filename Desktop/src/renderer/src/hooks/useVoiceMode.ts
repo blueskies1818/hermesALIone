@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useReducer } from "react";
 import { computeRms } from "@renderer/utils/audioCapture";
 import { AudioPlayback } from "@renderer/utils/audioPlayback";
 
@@ -27,15 +27,24 @@ export interface VoiceMessage {
   content: string;
 }
 
+export interface TtsDebugInfo {
+  chunksReceived: number;
+  chunksPlayed: number;
+  playbackState: string;
+  lastError: string;
+}
+
 // ---------------------------------------------------------------------------
 // VAD constants (mirrors voice_mode.py)
 // ---------------------------------------------------------------------------
 
 const VAD_POLL_MS = 50;
-const SILENCE_THRESHOLD = 25; // RMS 0-255
+const SILENCE_THRESHOLD = 5; // RMS 0-255
 const MIN_SPEECH_SEC = 0.3;
 const SILENCE_SEC = 2.0;
 const MAX_WAIT_SEC = 15.0;
+// Number of 100ms chunks to keep before speech detection (~3 seconds of pre-roll)
+const PRE_ROLL_CHUNKS = 30;
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -53,6 +62,10 @@ export function useVoiceMode(
   });
 
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
+  const [ttsDebug, dispatchTts] = useReducer(
+    (s: TtsDebugInfo, action: Partial<TtsDebugInfo>) => ({ ...s, ...action }),
+    { chunksReceived: 0, chunksPlayed: 0, playbackState: "idle", lastError: "" },
+  );
 
   const playbackRef = useRef<AudioPlayback | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -91,11 +104,19 @@ export function useVoiceMode(
   // MediaRecorder helpers
   // ------------------------------------------------------------------
 
+  // Pre-roll state: keep last PRE_ROLL_CHUNKS blobs before speech starts.
+  // The first chunk always contains the WebM header so we never drop it.
+  const preRollRef = useRef<Blob[]>([]);
+  const recordingStartedRef = useRef(false);
+
   const startMediaRecorder = useCallback(() => {
     const stream = streamRef.current;
     if (!stream) return;
 
     audioChunksRef.current = [];
+    preRollRef.current = [];
+    recordingStartedRef.current = false;
+
     const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
       : MediaRecorder.isTypeSupported("audio/webm")
@@ -104,7 +125,18 @@ export function useVoiceMode(
 
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
     recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      if (e.data.size === 0) return;
+      if (recordingStartedRef.current) {
+        // Speech detected — accumulate normally
+        audioChunksRef.current.push(e.data);
+      } else {
+        // Pre-roll: sliding window, always keep chunk[0] (has WebM header)
+        preRollRef.current.push(e.data);
+        if (preRollRef.current.length > PRE_ROLL_CHUNKS) {
+          // Drop the second-oldest (keep index 0 which has the WebM header)
+          preRollRef.current.splice(1, 1);
+        }
+      }
     };
     recorder.start(100);
     mediaRecorderRef.current = recorder;
@@ -112,14 +144,17 @@ export function useVoiceMode(
 
   const stopMediaRecorder = useCallback((): Promise<Blob> => {
     return new Promise((resolve) => {
+      const finish = () => {
+        // Prepend pre-roll (WebM header chunk first, then recent pre-roll, then speech)
+        const chunks = [...preRollRef.current, ...audioChunksRef.current];
+        resolve(new Blob(chunks));
+      };
       const recorder = mediaRecorderRef.current;
       if (!recorder || recorder.state === "inactive") {
-        resolve(new Blob(audioChunksRef.current));
+        finish();
         return;
       }
-      recorder.onstop = () => {
-        resolve(new Blob(audioChunksRef.current));
-      };
+      recorder.onstop = finish;
       recorder.stop();
     });
   }, []);
@@ -210,6 +245,9 @@ export function useVoiceMode(
     if (currentState === "listening") {
       listenTimerRef.current += dt;
       if (listenTimerRef.current >= MAX_WAIT_SEC) {
+        // Timed out — stop pre-roll recorder and go idle
+        const recorder = mediaRecorderRef.current;
+        if (recorder && recorder.state !== "inactive") recorder.stop();
         setVoiceState("idle");
         vadStopRequestedRef.current = true;
         return;
@@ -218,7 +256,8 @@ export function useVoiceMode(
         speechTimerRef.current += dt;
         if (speechTimerRef.current >= MIN_SPEECH_SEC) {
           silenceTimerRef.current = 0;
-          startMediaRecorder();
+          // Flip to recording mode — MediaRecorder is already running for pre-roll
+          recordingStartedRef.current = true;
           setVoiceState("recording");
         }
       } else {
@@ -252,25 +291,42 @@ export function useVoiceMode(
     silenceTimerRef.current = 0;
     listenTimerRef.current = 0;
     vadStopRequestedRef.current = false;
+    // Start recorder immediately so pre-roll accumulates while waiting for speech
+    startMediaRecorder();
     setVoiceState("listening");
     vadTimerRef.current = setInterval(vadTick, VAD_POLL_MS);
-  }, [vadTick, setVoiceState]);
+  }, [vadTick, setVoiceState, startMediaRecorder]);
 
   // ------------------------------------------------------------------
   // TTS audio handler
   // ------------------------------------------------------------------
 
+  const ttsChunksReceivedRef = useRef(0);
+  const ttsChunksPlayedRef = useRef(0);
+
   const handleTtsAudio = useCallback(
     async (base64Chunk: string) => {
+      console.log("[TTS] renderer received audio chunk, length:", base64Chunk.length, "playback ready:", !!playbackRef.current);
+      ttsChunksReceivedRef.current += 1;
+      dispatchTts({ chunksReceived: ttsChunksReceivedRef.current, playbackState: "enqueuing" });
       const playback = playbackRef.current;
-      if (!playback) return;
+      if (!playback) {
+        dispatchTts({ lastError: "playbackRef is null" });
+        return;
+      }
 
       if (sessionRef.current !== "speaking") {
         setVoiceState("speaking");
         speakingRef.current = true;
       }
 
-      await playback.enqueue(base64Chunk);
+      try {
+        await playback.enqueue(base64Chunk);
+        ttsChunksPlayedRef.current += 1;
+        dispatchTts({ chunksPlayed: ttsChunksPlayedRef.current, playbackState: playback.state });
+      } catch (err) {
+        dispatchTts({ lastError: String(err), playbackState: "error" });
+      }
     },
     [setVoiceState],
   );
@@ -295,6 +351,9 @@ export function useVoiceMode(
     mediaRecorderRef.current?.stop();
     playbackRef.current?.stop();
     speakingRef.current = false;
+    ttsChunksReceivedRef.current = 0;
+    ttsChunksPlayedRef.current = 0;
+    dispatchTts({ chunksReceived: 0, chunksPlayed: 0, playbackState: "idle", lastError: "" });
     window.hermesAPI.abortChat();
     setVoiceState("idle");
   }, [stopVadInternal, setVoiceState]);
@@ -370,5 +429,7 @@ export function useVoiceMode(
     interrupt,
     onAgentDone,
     onAgentError,
+    ttsPlaybackRef: playbackRef,
+    ttsDebug,
   } as const;
 }

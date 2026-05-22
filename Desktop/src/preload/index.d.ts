@@ -199,6 +199,7 @@ interface HermesAPI {
     resumeSessionId?: string,
     history?: Array<{ role: string; content: string }>,
     attachments?: Attachment[],
+    voiceMode?: boolean,
   ) => Promise<{ response: string; sessionId?: string }>;
   abortChat: () => Promise<void>;
   sendAudio: (

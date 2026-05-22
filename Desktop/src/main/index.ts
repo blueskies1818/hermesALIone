@@ -97,6 +97,7 @@ import {
 import {
   syncSessionCache,
   listCachedSessions,
+  removeSessionFromCache,
   updateSessionTitle,
 } from "./session-cache";
 import { listModels, addModel, removeModel, updateModel } from "./models";
@@ -221,6 +222,7 @@ import {
   sshSetModelConfig,
   sshListSessions,
   sshGetSessionMessages,
+  sshDeleteSession,
   sshSearchSessions,
   sshListProfiles,
   sshCreateProfile,
@@ -243,6 +245,10 @@ import {
   sshRunDump,
   sshDiscoverMemoryProviders,
 } from "./ssh-remote";
+
+// Allow AudioContext and media autoplay in the desktop app without requiring
+// a user gesture — the assistant screen creates AudioContext from IPC callbacks.
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
 process.on("uncaughtException", (err) => {
   console.error("[MAIN UNCAUGHT]", err);
@@ -730,7 +736,9 @@ function setupIPC(): void {
       resumeSessionId?: string,
       history?: Array<{ role: string; content: string }>,
       attachments?: Attachment[],
+      voiceMode?: boolean,
     ) => {
+      console.log("[send-message] voiceMode=", voiceMode, "msg=", message?.slice(0, 40));
       if (!isRemoteMode() && !(await isGatewayRunning())) {
         await startGateway(profile);
       }
@@ -815,9 +823,14 @@ function setupIPC(): void {
           onUsage: (usage) => {
             event.sender.send("chat-usage", usage);
           },
-          onTtsAudio: (base64Chunk) => {
-            event.sender.send("chat-tts-audio", base64Chunk);
-          },
+          ...(voiceMode
+            ? {
+                onTtsAudio: (base64Chunk: string) => {
+                  console.log("[TTS] audio chunk received in main, bytes:", base64Chunk.length);
+                  event.sender.send("chat-tts-audio", base64Chunk);
+                },
+              }
+            : {}),
         },
         profile,
         resumeSessionId,
@@ -953,8 +966,15 @@ function setupIPC(): void {
     return getSessionMessages(sessionId);
   });
 
-  ipcMain.handle("delete-session", (_event, sessionId: string) => {
-    return deleteSession(sessionId);
+  ipcMain.handle("delete-session", async (_event, sessionId: string) => {
+    const conn = getConnectionConfig();
+    if (conn.mode === "ssh" && conn.ssh) {
+      const ok = await sshDeleteSession(conn.ssh, sessionId);
+      if (ok) removeSessionFromCache(sessionId);
+      return ok;
+    }
+    await deleteSession(sessionId);
+    removeSessionFromCache(sessionId);
   });
 
   // Profiles

@@ -21,29 +21,46 @@ gateway_listening() {
 }
 
 # ------------------------------------------------------------------
-# Start Hermes Agent gateway if not already running
+# Start Hermes Agent gateway — always kill stale process first so
+# fresh code is loaded on every start
 # ------------------------------------------------------------------
+# Kill any stale hermes processes by name so fresh code is always loaded
+echo "Stopping any existing hermes processes..."
+pkill -f "hermes" 2>/dev/null || true
+sleep 1
+
 if gateway_listening; then
-    echo "Hermes Agent gateway is already running on port 8642."
+    echo "Stopping existing gateway on port 8642..."
+    # Kill whatever process owns port 8642
+    if command -v ss &>/dev/null; then
+        pid=$(ss -tlnp 2>/dev/null | grep ':8642 ' | grep -oP 'pid=\K[0-9]+' | head -1)
+    elif command -v lsof &>/dev/null; then
+        pid=$(lsof -ti tcp:8642 2>/dev/null | head -1)
+    fi
+    if [ -n "$pid" ]; then
+        kill -9 "$pid" 2>/dev/null || true
+        sleep 1
+    fi
+fi
+
+echo "Starting Hermes Agent gateway..."
+cd "$SCRIPT_DIR/Agent"
+
+# Activate venv if present
+if [ -f .venv/bin/activate ]; then
+    source .venv/bin/activate
+fi
+
+# API server must be enabled for port 8642 to bind
+export API_SERVER_ENABLED=true
+
+# Try service-based start first, fall back to foreground in background
+if hermes gateway start 2>/dev/null; then
+    echo "Gateway service started."
 else
-    echo "Starting Hermes Agent gateway..."
-    cd "$SCRIPT_DIR/Agent"
-
-    # Activate venv if present
-    if [ -f .venv/bin/activate ]; then
-        source .venv/bin/activate
-    fi
-
-    # API server must be enabled for port 8642 to bind
-    export API_SERVER_ENABLED=true
-
-    # Try service-based start first, fall back to foreground in background
-    if hermes gateway start 2>/dev/null; then
-        echo "Gateway service started."
-    else
-        echo "Service start unavailable — running gateway in background..."
-        nohup hermes gateway run --replace > /dev/null 2>&1 &
-    fi
+    echo "Service start unavailable — running gateway in background..."
+    nohup hermes gateway run --replace > /dev/null 2>&1 &
+fi
 
     # Wait for gateway to become available (up to 30s)
     echo "Waiting for gateway to become ready..."

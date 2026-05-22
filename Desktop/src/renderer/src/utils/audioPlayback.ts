@@ -1,36 +1,56 @@
 /**
- * Sequential audio chunk playback via Web Audio API.
+ * Sequential audio chunk playback using HTMLAudioElement + Blob URLs.
  *
- * Accepts base64-encoded audio chunks (MP3, WAV, or any format the browser's
- * decodeAudioData supports), decodes them, and plays them in order with
- * minimal gaps between chunks.
+ * Accepts base64-encoded MP3 chunks, converts them to Blob URLs, and plays
+ * them sequentially in order. Uses the HTML Audio element which has no
+ * AudioContext autoplay policy restrictions in Electron.
+ *
+ * An optional Web Audio API analyser is created for the visualizer but is
+ * not required for playback.
  */
 
 type PlayState = "idle" | "playing" | "paused" | "stopped";
 
 interface QueuedChunk {
-  buffer: AudioBuffer;
+  url: string;
   index: number;
 }
 
 export class AudioPlayback {
   private _ctx: AudioContext | null = null;
+  private _analyser: AnalyserNode | null = null;
   private _state: PlayState = "idle";
   private _queue: QueuedChunk[] = [];
   private _nextIndex = 0;
-  private _currentSource: AudioBufferSourceNode | null = null;
+  private _currentAudio: HTMLAudioElement | null = null;
   private _onStateChange?: (state: PlayState) => void;
   private _onEnd?: () => void;
 
-  /** Ensure an AudioContext exists (must be called from a user gesture). */
+  /**
+   * Pre-initialize the Web Audio analyser (for visualizer only, optional).
+   * Safe to call from a user gesture or without one (analyser is not used
+   * for actual playback so AudioContext suspension doesn't block audio).
+   */
   ensureContext(): AudioContext {
     if (!this._ctx || this._ctx.state === "closed") {
       this._ctx = new AudioContext();
+      this._analyser = this._ctx.createAnalyser();
+      this._analyser.fftSize = 512;
+      this._analyser.connect(this._ctx.destination);
     }
     if (this._ctx.state === "suspended") {
-      this._ctx.resume();
+      this._ctx.resume().catch(() => {});
     }
     return this._ctx;
+  }
+
+  /** Fill `out` with frequency-domain data for visualization (0–255 per bin). */
+  getFrequencyData(out: Uint8Array<ArrayBuffer>): void {
+    if (this._analyser) {
+      this._analyser.getByteFrequencyData(out);
+    } else {
+      out.fill(0);
+    }
   }
 
   get state(): PlayState {
@@ -46,55 +66,47 @@ export class AudioPlayback {
   }
 
   /**
-   * Decode a base64 audio chunk and enqueue it for playback.
-   * Chunks play sequentially in the order they are enqueued.
+   * Decode a base64 audio chunk and enqueue it for sequential playback.
+   * Uses HTMLAudioElement + Blob URL — no AudioContext required for playback.
    */
   async enqueue(base64Chunk: string, index?: number): Promise<void> {
-    const ctx = this.ensureContext();
-
     const binary = atob(base64Chunk);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
 
-    try {
-      const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
-      this._queue.push({ buffer: audioBuffer, index: index ?? this._nextIndex++ });
-      this._queue.sort((a, b) => a.index - b.index);
+    const blob = new Blob([bytes], { type: "audio/mpeg" });
+    const url = URL.createObjectURL(blob);
+    const chunkIndex = index ?? this._nextIndex++;
+    this._queue.push({ url, index: chunkIndex });
+    this._queue.sort((a, b) => a.index - b.index);
 
-      if (this._state !== "playing") {
-        this._playNext();
-      }
-    } catch (err) {
-      console.warn("Failed to decode audio chunk:", err);
+    console.log("[AudioPlayback] enqueued chunk", chunkIndex, "queue size:", this._queue.length, "state:", this._state);
+
+    if (this._state !== "playing") {
+      this._playNext();
     }
   }
 
-  /** Stop playback and clear the queue. */
+  /** Stop playback, revoke all pending blob URLs, and clear the queue. */
   stop(): void {
-    if (this._currentSource) {
-      try {
-        this._currentSource.stop();
-      } catch {
-        // Already stopped
-      }
-      this._currentSource = null;
+    if (this._currentAudio) {
+      this._currentAudio.pause();
+      this._currentAudio.src = "";
+      this._currentAudio = null;
     }
+    for (const { url } of this._queue) URL.revokeObjectURL(url);
     this._queue = [];
     this._nextIndex = 0;
     this._setState("stopped");
   }
 
-  /** Pause (stops current source, keeps queue). */
+  /** Pause current playback (keeps queue). */
   pause(): void {
-    if (this._currentSource) {
-      try {
-        this._currentSource.stop();
-      } catch {
-        // Already stopped
-      }
-      this._currentSource = null;
+    if (this._currentAudio) {
+      this._currentAudio.pause();
+      this._currentAudio = null;
     }
     this._setState("paused");
   }
@@ -108,8 +120,10 @@ export class AudioPlayback {
 
   close(): void {
     this.stop();
+    this._analyser?.disconnect();
+    this._analyser = null;
     if (this._ctx && this._ctx.state !== "closed") {
-      this._ctx.close();
+      this._ctx.close().catch(() => {});
     }
     this._ctx = null;
   }
@@ -125,21 +139,38 @@ export class AudioPlayback {
       return;
     }
 
-    const ctx = this._ctx;
-    if (!ctx || ctx.state === "closed") return;
+    const { url } = this._queue.shift()!;
+    const audio = new Audio(url);
+    this._currentAudio = audio;
+    // Set state synchronously so concurrent enqueue() calls don't start a second _playNext().
+    this._setState("playing");
 
-    const { buffer } = this._queue.shift()!;
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx.destination);
-    source.onended = () => {
-      this._currentSource = null;
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      this._currentAudio = null;
       this._playNext();
     };
 
-    this._currentSource = source;
-    source.start();
-    this._setState("playing");
+    audio.onerror = (e) => {
+      console.error("[AudioPlayback] audio element error:", e);
+      URL.revokeObjectURL(url);
+      this._currentAudio = null;
+      this._playNext();
+    };
+
+    console.log("[AudioPlayback] calling audio.play()");
+
+    audio.play()
+      .then(() => {
+        console.log("[AudioPlayback] audio.play() started OK");
+      })
+      .catch((err) => {
+        console.error("[AudioPlayback] audio.play() rejected:", err);
+        URL.revokeObjectURL(url);
+        this._currentAudio = null;
+        this._setState("idle");
+        this._playNext();
+      });
   }
 
   private _setState(s: PlayState): void {

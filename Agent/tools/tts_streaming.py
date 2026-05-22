@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _SENTENCE_RE = re.compile(r'(?<=[.!?])\s+')
 
 _MD_CODE_BLOCK = re.compile(r'```[\s\S]*?```')
-_MD_INLINE_CODE = re.compile(r'`[^`]+`')
+_MD_INLINE_CODE = re.compile(r'`([^`]+)`')
 _MD_LINK = re.compile(r'\[([^\]]*?)\]\([^)]+\)')
 _MD_URL = re.compile(r'https?://\S+')
 _MD_BOLD = re.compile(r'\*\*([^*]+)\*\*')

@@ -6,48 +6,56 @@
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# -- Check if gateway is already running on port 8642 --------------------------
-$gatewayRunning = Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue
+# -- Kill any stale hermes processes (by name) so fresh code is always loaded ---
+Write-Host "Stopping any existing hermes processes..."
+Get-Process -Name "hermes" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "hermes-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
+# -- Kill any stale gateway process on port 8642 so fresh code is always loaded -
+$gatewayRunning = Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue
 if ($gatewayRunning) {
-    Write-Host "Hermes Agent gateway is already running on port 8642."
+    Write-Host "Stopping existing gateway on port 8642..."
+    $pid = $gatewayRunning.OwningProcess | Select-Object -First 1
+    if ($pid) {
+        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+}
+
+Write-Host "Starting Hermes Agent gateway..."
+Push-Location "$ScriptDir\Agent"
+
+# Activate venv if present
+if (Test-Path ".venv\Scripts\Activate.ps1") {
+    . ".venv\Scripts\Activate.ps1"
+}
+
+# Start gateway in background via Start-Job
+# API_SERVER_ENABLED must be set inside the ScriptBlock — Start-Job runs in a
+# separate runspace and does not inherit $env: variables from the parent.
+$gatewayJob = Start-Job -Name "HermesGateway" -ScriptBlock {
+    $env:API_SERVER_ENABLED = "true"
+    Set-Location $using:ScriptDir\Agent
+    hermes gateway run --replace 2>&1 | Out-Null
+}
+
+# Wait for gateway to become ready (up to 30s)
+Write-Host "Waiting for gateway to become ready..."
+$timeout = 30
+for ($i = 0; $i -lt $timeout; $i++) {
+    Start-Sleep -Seconds 1
+    $test = Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue
+    if ($test) { break }
+}
+
+if (Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue) {
+    Write-Host "Gateway is ready."
 }
 else {
-    Write-Host "Starting Hermes Agent gateway..."
-    Push-Location "$ScriptDir\Agent"
-
-    # Activate venv if present
-    if (Test-Path ".venv\Scripts\Activate.ps1") {
-        . ".venv\Scripts\Activate.ps1"
-    }
-
-    # Start gateway in background via Start-Job
-    # API_SERVER_ENABLED must be set inside the ScriptBlock — Start-Job runs in a
-    # separate runspace and does not inherit $env: variables from the parent.
-    $gatewayJob = Start-Job -Name "HermesGateway" -ScriptBlock {
-        $env:API_SERVER_ENABLED = "true"
-        Set-Location $using:ScriptDir\Agent
-        hermes gateway run --replace 2>&1 | Out-Null
-    }
-
-    # Wait for gateway to become ready (up to 30s)
-    Write-Host "Waiting for gateway to become ready..."
-    $timeout = 30
-    for ($i = 0; $i -lt $timeout; $i++) {
-        Start-Sleep -Seconds 1
-        $test = Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue
-        if ($test) { break }
-    }
-
-    if (Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue) {
-        Write-Host "Gateway is ready."
-    }
-    else {
-        Write-Host "Warning: Gateway may still be starting — check logs in ~\.hermes\logs\"
-    }
-
-    Pop-Location
+    Write-Host "Warning: Gateway may still be starting — check logs in ~\.hermes\logs\"
 }
+
+Pop-Location
 
 # -- Start Hermes dashboard (REST API on port 9119) ----------------------------
 $dashRunning = Get-NetTCPConnection -LocalPort 9119 -ErrorAction SilentlyContinue
