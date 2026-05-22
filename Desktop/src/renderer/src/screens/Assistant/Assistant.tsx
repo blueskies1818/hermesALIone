@@ -97,9 +97,10 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
       smoothed[i] = SMOOTH * smoothed[i] + (1 - SMOOTH) * rawArr[i];
       if (smoothed[i] > maxVal) maxVal = smoothed[i];
     }
-    // Peak decays slowly so visualizer always reflects current amplitude scale
-    peakRef.current = Math.max(peakRef.current * 0.992, Math.max(maxVal, 25));
-    const normFactor = 90 / peakRef.current;
+    // Peak decays slowly so visualizer always reflects current amplitude scale.
+    // Target height of 60px caps the ribbon at 2/3 of the passive animation's natural ceiling.
+    peakRef.current = Math.max(peakRef.current * 0.992, Math.max(maxVal, 20));
+    const normFactor = 60 / peakRef.current;
 
     const cs = getComputedStyle(canvas);
     const bg = cs.getPropertyValue("--bg-primary").trim() || "#12131c";

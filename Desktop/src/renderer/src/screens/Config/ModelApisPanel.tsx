@@ -108,13 +108,6 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
     type: "success" | "error";
   } | null>(null);
 
-  // New model form
-  const [newName, setNewName] = useState("");
-  const [newProvider, setNewProvider] = useState("");
-  const [newModel, setNewModel] = useState("");
-  const [newBaseUrl, setNewBaseUrl] = useState("");
-  const [addingModel, setAddingModel] = useState(false);
-
   // Custom provider form
   const [customSlug, setCustomSlug] = useState("");
   const [customLabel, setCustomLabel] = useState("");
@@ -284,32 +277,6 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
   // ------------------------------------------------------------------
   // Add a new model entry
   // ------------------------------------------------------------------
-
-  const handleAddModel = useCallback(async () => {
-    if (!newName || !newProvider || !newModel) return;
-    setAddingModel(true);
-    try {
-      await window.hermesAPI.addModel(
-        newName,
-        newProvider,
-        newModel,
-        newBaseUrl,
-      );
-      setNewName("");
-      setNewProvider("");
-      setNewModel("");
-      setNewBaseUrl("");
-      const models = await window.hermesAPI.listModels();
-      setSavedModels(models);
-      showStatus("Model added", "success");
-    } catch {
-      showStatus("Failed to add model", "error");
-    } finally {
-      setAddingModel(false);
-    }
-  }, [newName, newProvider, newModel, newBaseUrl]);
-
-  // ------------------------------------------------------------------
   // Remove a model entry
   // ------------------------------------------------------------------
 
@@ -407,11 +374,8 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
         const models = await window.hermesAPI.listModels();
         setSavedModels(models);
       } else {
-        // Discovery failed or returned empty — pre-fill the Add Model form
-        setNewProvider(customSlug);
-        setNewBaseUrl(customBaseUrl);
         showStatus(
-          `Provider "${customSlug}" added. No models auto-discovered — enter model ID below.`,
+          `Provider "${customSlug}" added. No models auto-discovered — try Discover Models or check the endpoint.`,
           "success",
         );
       }
@@ -620,59 +584,7 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
         <div className="config-section-line" />
       </div>
 
-      {/* Add model form */}
-      <div className="model-apis-add-row">
-        <input
-          className="input config-input"
-          type="text"
-          placeholder="Display name"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-        />
-        <select
-          className="input config-input"
-          value={newProvider}
-          onChange={(e) => setNewProvider(e.target.value)}
-          style={{ minWidth: 150 }}
-        >
-          <option value="">Select provider...</option>
-          {[...PROVIDERS, ...customProviders].map((p) => (
-            <option key={p.slug} value={p.slug}>
-              {p.label} ({p.slug})
-            </option>
-          ))}
-        </select>
-        <input
-          className="input config-input"
-          type="text"
-          placeholder="Model ID (e.g. gpt-4o)"
-          value={newModel}
-          onChange={(e) => setNewModel(e.target.value)}
-        />
-        <input
-          className="input config-input"
-          type="text"
-          placeholder="Base URL (optional)"
-          value={newBaseUrl}
-          onChange={(e) => setNewBaseUrl(e.target.value)}
-        />
-        <button
-          className="btn-sm btn-primary"
-          onClick={handleAddModel}
-          disabled={!newName || !newProvider || !newModel || addingModel}
-        >
-          {addingModel ? "Adding..." : "Add Model"}
-        </button>
-      </div>
-
-      {savedModels.length === 0 ? (
-        <div className="schedules-empty" style={{ marginTop: 16 }}>
-          <p className="schedules-empty-text">
-            No saved models. Add one above or use Discover Models on a
-            provider card.
-          </p>
-        </div>
-      ) : (
+      {savedModels.length > 0 && (
         <div className="model-apis-model-list">
           {savedModels.map((m) => (
             <div key={m.id} className="model-apis-model-item">
