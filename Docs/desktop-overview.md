@@ -90,7 +90,7 @@ See [Desktop IPC API](desktop-ipc-api.md) for the full API reference.
 | **Skills** | 11 KB | Skill browser |
 | **Kanban** | 34 KB | Full kanban board |
 | **Schedules** | 22 KB | Cron job management |
-| **Vault** | 45 KB | Document vault with buckets and search |
+| **Vault** | 50 KB | Document vault — force-directed node graph, file explorer, markdown editor, FTS5 search, bucket management |
 | **Config** | 22 KB | Full YAML config editor |
 | **Providers** | 20 KB | LLM provider configuration |
 | **Models** | 18 KB | Custom model management |
