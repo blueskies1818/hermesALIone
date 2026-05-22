@@ -111,6 +111,13 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
         <div className="connect-panel-icon"><Monitor size={32} /></div>
         <h2 className="connect-panel-title">{t("connect.localTitle")}</h2>
         <p className="connect-panel-desc">{t("connect.localDesc")}</p>
+
+        <div className="connect-info-box">
+          <p>The Hermes Agent runs on this machine. Make sure the gateway is
+          running (<code>./start.sh</code> or <code>./start.bat</code>) and
+          listening on port 9119. No additional setup needed.</p>
+        </div>
+
         <button
           className="btn btn-primary"
           onClick={handleLocalConnect}
@@ -134,6 +141,14 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
         <div className="connect-panel-icon"><Globe size={32} /></div>
         <h2 className="connect-panel-title">{t("connect.remoteTitle")}</h2>
         <p className="connect-panel-desc">{t("connect.remoteDesc")}</p>
+
+        <div className="connect-info-box">
+          <p>Point the desktop at a remote Hermes gateway. The remote machine
+          must be running the dashboard (port 9119) and the port must be
+          reachable from this machine. Set an API key if the gateway requires
+          one (<code>API_SERVER_KEY</code> in <code>.env</code>). Run
+          <code>hermes connect</code> in the CLI for detailed help.</p>
+        </div>
 
         <div className="connect-form">
           <label className="connect-label">{t("connect.serverUrl")}</label>
@@ -182,6 +197,14 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
         <div className="connect-panel-icon"><KeyRound size={32} /></div>
         <h2 className="connect-panel-title">{t("connect.sshTitle")}</h2>
         <p className="connect-panel-desc">{t("connect.sshDesc")}</p>
+
+        <div className="connect-info-box">
+          <p>Connect via SSH tunnel to a remote Hermes instance. First, run
+          <code>hermes ssh-keygen</code> on this machine to generate a key. Then
+          run the <code>ssh-copy-id</code> command it prints to authorize the key
+          on the remote host. Run <code>hermes connect</code> for detailed field
+          descriptions and setup help.</p>
+        </div>
 
         <div className="connect-form">
           <div style={{ display: "flex", gap: 8 }}>
