@@ -250,14 +250,22 @@ def _find_bash() -> str:
             if os.path.isfile(candidate):
                 return candidate
 
+    # shutil.which("bash") on Windows frequently resolves to WSL bash at
+    # %LOCALAPPDATA%\Microsoft\WindowsApps\bash.EXE, which is a Linux
+    # environment that cannot resolve Windows paths (C:\...) and will fail
+    # with "No such file or directory". Skip any bash found in WindowsApps.
+    _wsl_marker = os.path.join(_local_appdata, "Microsoft", "WindowsApps").lower()
     found = shutil.which("bash")
+    if found and _wsl_marker and found.lower().startswith(_wsl_marker):
+        found = None  # WSL bash — skip and fall through to Git Bash candidates
+
     if found:
         return found
 
     for candidate in (
+        os.path.join(_local_appdata, "Programs", "Git", "bin", "bash.exe"),
         os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "bin", "bash.exe"),
         os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Git", "bin", "bash.exe"),
-        os.path.join(_local_appdata, "Programs", "Git", "bin", "bash.exe"),
     ):
         if candidate and os.path.isfile(candidate):
             return candidate
