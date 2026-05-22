@@ -55,6 +55,63 @@ const NON_DISCOVERABLE_PROVIDERS = new Set<string>([
   "kimi-coding",
 ]);
 
+/** Fallback model lists for providers that don't expose a public /models
+ *  endpoint.  When live discovery returns 0 IDs, the caller can surface
+ *  these so users still get useful autocomplete.  Mirrors the static
+ *  provider-model lists in hermes_cli/models.py. */
+const PROVIDER_MODELS_FALLBACK: Record<string, string[]> = {
+  deepseek: [
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "deepseek-chat",
+    "deepseek-reasoner",
+  ],
+  gemini: [
+    "gemini-3.1-pro-preview",
+    "gemini-3-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview",
+  ],
+  xai: [
+    "grok-4.20",
+    "grok-4.1.1",
+    "grok-4.1",
+    "grok-4",
+    "grok-3-beta",
+  ],
+  anthropic: [
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
+  ],
+  groq: [
+    "llama-4-maverick-17b-128e-instruct",
+    "llama-4-scout-17b-16e-instruct",
+    "llama-3.3-70b-versatile",
+    "deepseek-r1-distill-llama-70b",
+  ],
+  mistral: [
+    "mistral-large-latest",
+    "mistral-small-latest",
+    "codestral-latest",
+    "mistral-embed",
+  ],
+  openrouter: [
+    "openai/gpt-5.4",
+    "openai/gpt-4o",
+    "anthropic/claude-sonnet-4-6",
+    "google/gemini-3.1-flash",
+  ],
+  "ollama-cloud": [
+    "llama4",
+    "llama3.3",
+    "qwen3",
+    "mistral",
+    "gemma3",
+  ],
+};
+
 // In-memory result cache to avoid hammering the provider on every keystroke.
 interface CacheEntry {
   models: string[];
@@ -211,6 +268,10 @@ export interface DiscoverModelsResult {
   status: "ok" | "no-key" | "unsupported" | "unknown-host";
   /** ``true`` when the result came from the in-memory cache. */
   cached: boolean;
+  /** ``"live"`` when the provider returned models from its /models endpoint.
+   *  ``"fallback"`` when the provider returned nothing and we used hardcoded
+   *  model names instead.  ``undefined`` for error statuses. */
+  source?: "live" | "fallback";
 }
 
 /** Discover available models for a provider.  Returns an object so the
@@ -244,9 +305,19 @@ export async function discoverProviderModels(
 
   const url = buildUrl(baseUrl);
   const headers = authHeaders(lowerProvider, apiKey);
-  const models = await fetchModelsHttp(url, headers, 10_000);
+  const liveModels = await fetchModelsHttp(url, headers, 10_000);
+
+  // If live discovery returned nothing, fall back to the hardcoded list
+  const fallback = PROVIDER_MODELS_FALLBACK[lowerProvider] || [];
+  const models = liveModels.length > 0 ? liveModels : fallback;
+
   setCache(lowerProvider, baseUrl, models);
-  return { models, status: "ok", cached: false };
+  return {
+    models,
+    status: "ok",
+    cached: false,
+    source: liveModels.length > 0 ? "live" : "fallback",
+  };
 }
 
 /** Internal: exposed for tests / debugging only.  Production callers

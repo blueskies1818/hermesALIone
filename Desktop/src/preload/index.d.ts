@@ -220,6 +220,7 @@ interface HermesAPI {
     models: string[];
     status: "ok" | "no-key" | "unsupported" | "unknown-host";
     cached: boolean;
+    source?: "live" | "fallback";
   }>;
   onChatChunk: (callback: (chunk: string) => void) => () => void;
   onChatDone: (callback: (sessionId?: string) => void) => () => void;

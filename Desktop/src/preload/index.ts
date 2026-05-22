@@ -225,6 +225,7 @@ const hermesAPI = {
     models: string[];
     status: "ok" | "no-key" | "unsupported" | "unknown-host";
     cached: boolean;
+    source?: "live" | "fallback";
   }> =>
     ipcRenderer.invoke(
       "discover-provider-models",

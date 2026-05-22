@@ -196,8 +196,9 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
               }
             }
             if (added > 0) {
+              const label = result.source === "fallback" ? "(from catalog)" : "";
               showStatus(
-                `Saved key + auto-discovered ${added} model(s) for ${matchedProvider.label}`,
+                `Saved key + added ${added} model(s) for ${matchedProvider.label} ${label}`,
                 "success",
               );
               const models = await window.hermesAPI.listModels();
@@ -253,9 +254,10 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
               // skip individual failures
             }
           }
+          const label = result.source === "fallback" ? " (from catalog)" : "";
           showStatus(
             added > 0
-              ? `Added ${added} model(s) for ${slug}`
+              ? `Added ${added} model(s) for ${slug}${label}`
               : `${result.models.length} models for ${slug} already saved`,
             "success",
           );
