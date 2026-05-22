@@ -163,13 +163,55 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
         await window.hermesAPI.setEnv(key, value, profile);
         setEnvVars((prev) => ({ ...prev, [key]: value }));
         showStatus(`${key} saved`, "success");
+
+        // Auto-discover models when API key is saved for a known provider
+        const matchedProvider = PROVIDERS.find((p) => p.envKey === key);
+        if (matchedProvider && value) {
+          const baseUrlKey = matchedProvider.envBaseUrlKey;
+          const baseUrl = baseUrlKey ? envVars[baseUrlKey] || "" : "";
+          const result = await window.hermesAPI.discoverProviderModels(
+            matchedProvider.slug,
+            baseUrl || undefined,
+            value || undefined,
+            profile,
+          );
+          if (result.status === "ok" && result.models.length > 0) {
+            const existing = await window.hermesAPI.listModels();
+            let added = 0;
+            for (const modelId of result.models) {
+              const alreadyExists = existing.some(
+                (m) => m.model === modelId && m.provider === matchedProvider.slug,
+              );
+              if (alreadyExists) continue;
+              try {
+                await window.hermesAPI.addModel(
+                  modelId,
+                  matchedProvider.slug,
+                  modelId,
+                  baseUrl || "",
+                );
+                added++;
+              } catch {
+                // skip individual failures
+              }
+            }
+            if (added > 0) {
+              showStatus(
+                `Saved key + auto-discovered ${added} model(s) for ${matchedProvider.label}`,
+                "success",
+              );
+              const models = await window.hermesAPI.listModels();
+              setSavedModels(models);
+            }
+          }
+        }
       } catch {
         showStatus(`Failed to save ${key}`, "error");
       } finally {
         setSaving(null);
       }
     },
-    [profile],
+    [profile, envVars],
   );
 
   // ------------------------------------------------------------------
@@ -191,11 +233,32 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
           profile,
         );
         if (result.status === "ok") {
+          // Save each discovered model to models.json if not already present
+          const existing = await window.hermesAPI.listModels();
+          let added = 0;
+          for (const modelId of result.models) {
+            const alreadyExists = existing.some(
+              (m) => m.model === modelId && m.provider === slug,
+            );
+            if (alreadyExists) continue;
+            try {
+              await window.hermesAPI.addModel(
+                modelId,
+                slug,
+                modelId,
+                baseUrl || "",
+              );
+              added++;
+            } catch {
+              // skip individual failures
+            }
+          }
           showStatus(
-            `Discovered ${result.models.length} models for ${slug}`,
+            added > 0
+              ? `Added ${added} model(s) for ${slug}`
+              : `${result.models.length} models for ${slug} already saved`,
             "success",
           );
-          // Reload models list
           const models = await window.hermesAPI.listModels();
           setSavedModels(models);
         } else if (result.status === "no-key") {

@@ -34,6 +34,9 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   huggingface: "https://router.huggingface.co/v1",
   zai: "https://api.z.ai/api/paas/v4",
   anthropic: "https://api.anthropic.com/v1",
+  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
+  xai: "https://api.x.ai/v1",
+  "ollama-cloud": "https://api.ollama.com/v1",
 };
 
 /** Providers whose `/models` we never call — either they don't expose it,
@@ -44,7 +47,6 @@ const NON_DISCOVERABLE_PROVIDERS = new Set<string>([
   "custom",
   "nous",
   "google",
-  "xai",
   "openai-codex",
   "xai-oauth",
   "qwen-oauth",
