@@ -71,6 +71,12 @@ Detailed documentation for each subsystem lives in [`Docs/`](Docs/):
 | [Voice Assistant](Docs/desktop-voice-assistant.md) | VAD state machine, TTS pipeline, pre-roll buffer, audio visualizer |
 | [IPC API Reference](Docs/desktop-ipc-api.md) | Full `window.hermesAPI` surface — 100+ methods across all categories |
 
+### Features
+| File | Description |
+|------|-------------|
+| [Cross-Platform & Headless](Docs/cross-platform-headless.md) | Platform support philosophy, removed Apple skills, tool compatibility, skill filtering |
+| [Vault & Knowledge](Docs/vault-knowledge.md) | Bucketed knowledge bases, FTS5 search, wikilink graph, Obsidian integration, markdown editor |
+
 ## Quick Links
 
 - [Desktop README](Desktop/README.md) — install, screenshots, features, development
