@@ -79,6 +79,30 @@ npm install
 Set-Location $ScriptDir
 Write-Host ""
 
+# ── Add 'hermes' to PATH ───────────────────────────────────────────────────────
+Write-Host "Installing 'hermes' command..." -ForegroundColor Yellow
+
+$VenvScripts = "$ScriptDir\Agent\.venv\Scripts"
+
+# The venv's Scripts dir contains hermes.exe (created by setuptools entry_points).
+# Add it to the user PATH registry entry so every new terminal finds it.
+$userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+if (-not $userPath) { $userPath = "" }
+
+if ($userPath -notlike "*$VenvScripts*") {
+    $newPath = "$VenvScripts;$userPath".TrimEnd(";")
+    [System.Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+    Write-Host "  Added to user PATH: $VenvScripts" -ForegroundColor Green
+} else {
+    Write-Host "  Already in user PATH" -ForegroundColor Green
+}
+
+# Also update the current session so it works immediately
+$env:PATH = "$VenvScripts;$env:PATH"
+
+Write-Host "  'hermes' is now available in new terminals" -ForegroundColor Green
+Write-Host ""
+
 # ── Done ───────────────────────────────────────────────────────────────────────
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Green
 Write-Host "  Install complete!" -ForegroundColor Green
@@ -86,5 +110,7 @@ Write-Host "━━━━━━━━━━━━━━━━━━━━━━�
 Write-Host ""
 Write-Host "  Next steps:"
 Write-Host "  1. Edit Agent\.env to add your API keys"
-Write-Host "  2. Run: .\start.bat or .\start.ps1"
+Write-Host "  2. Open a new terminal and run: hermes" -ForegroundColor Cyan
+Write-Host "     (or use it right now in this session)"
+Write-Host "  3. To start the desktop UI: .\start.bat or .\start.ps1"
 Write-Host ""
