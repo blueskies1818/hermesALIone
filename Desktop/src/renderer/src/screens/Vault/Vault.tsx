@@ -516,6 +516,264 @@ function VaultEditor({
 }
 
 // ---------------------------------------------------------------------------
+// Force-directed node graph
+// ---------------------------------------------------------------------------
+
+const BUCKET_COLORS = [
+  "#00ffcc", "#7c6aff", "#ff6b6b", "#ffd93d",
+  "#6bcb77", "#ff9f43", "#a29bfe", "#fd79a8",
+];
+
+interface GNode {
+  id: string; label: string; bucketId: string;
+  fullPath: string; relPath: string;
+  x: number; y: number; vx: number; vy: number; pinned: boolean;
+}
+interface GEdge { source: string; target: string; }
+
+function collectFileNodes(nodes: TreeNode[], bucketId: string, out: Omit<GNode,"vx"|"vy"|"pinned">[]): void {
+  for (const n of nodes) {
+    if (n.type === "file") out.push({ id: n.fullPath, label: n.name.replace(/\.md$/i,""), bucketId, fullPath: n.fullPath, relPath: n.relPath, x: (Math.random()-0.5)*300, y: (Math.random()-0.5)*300 });
+    if (n.children) collectFileNodes(n.children, bucketId, out);
+  }
+}
+
+function VaultGraph({ buckets, bucketTrees, onOpenFile }: {
+  buckets: VaultBucket[];
+  bucketTrees: Record<string, BucketNodeState>;
+  onOpenFile: (node: TreeNode) => void;
+}): React.JSX.Element {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const simRef = useRef<{
+    nodes: GNode[]; edges: GEdge[];
+    pan: {x:number;y:number}; zoom: number;
+    hoverId: string|null; dragId: string|null; dragOffset: {x:number;y:number};
+    isPanning: boolean; panStart: {x:number;y:number};
+    didDrag: boolean;
+    raf: number; w: number; h: number;
+  }>({ nodes:[], edges:[], pan:{x:0,y:0}, zoom:1, hoverId:null, dragId:null, dragOffset:{x:0,y:0}, isPanning:false, panStart:{x:0,y:0}, didDrag:false, raf:0, w:800, h:600 });
+
+  // Sync nodes from bucket trees
+  useEffect(() => {
+    const sim = simRef.current;
+    const existing = new Map(sim.nodes.map(n => [n.id, n]));
+    const fresh: GNode[] = [];
+    const proto: Omit<GNode,"vx"|"vy"|"pinned">[] = [];
+    for (const b of buckets) {
+      const t = bucketTrees[b.id]?.tree;
+      if (t) collectFileNodes(t, b.id, proto);
+    }
+    for (const p of proto) {
+      const prev = existing.get(p.id);
+      fresh.push(prev ? { ...prev, label: p.label } : { ...p, vx:0, vy:0, pinned:false });
+    }
+    sim.nodes = fresh;
+  }, [buckets, bucketTrees]);
+
+  // Fetch wikilinks
+  useEffect(() => {
+    const sim = simRef.current;
+    Promise.all(buckets.map(async b => {
+      try {
+        const r = await window.hermesAPI.vault.getLinks(b.id);
+        if (!r.ok) return [];
+        return r.links
+          .filter((l: {toPath:string|null}) => l.toPath)
+          .map((l: {fromPath:string;toPath:string}) => {
+            const src = sim.nodes.find(n => n.bucketId===b.id && n.relPath===l.fromPath);
+            const tgt = sim.nodes.find(n => n.bucketId===b.id && n.relPath===l.toPath);
+            return src && tgt && src.id!==tgt.id ? { source:src.id, target:tgt.id } : null;
+          })
+          .filter(Boolean) as GEdge[];
+      } catch { return []; }
+    })).then(all => { sim.edges = all.flat(); });
+  }, [buckets]);
+
+  // Animation loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const sim = simRef.current;
+
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.offsetWidth; const h = canvas.offsetHeight;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      sim.w = w; sim.h = h;
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+
+    const colorMap = new Map(buckets.map((b,i) => [b.id, BUCKET_COLORS[i % BUCKET_COLORS.length]]));
+
+    function tick() {
+      const { nodes, edges } = sim;
+      if (nodes.length === 0) return;
+      const REP=3500, K_SPRING=0.05, REST=110, GRAV=0.01, DAMP=0.82;
+      const fx = new Float32Array(nodes.length);
+      const fy = new Float32Array(nodes.length);
+      for (let i=0;i<nodes.length;i++) {
+        for (let j=i+1;j<nodes.length;j++) {
+          const dx=nodes[j].x-nodes[i].x, dy=nodes[j].y-nodes[i].y;
+          const d2=dx*dx+dy*dy+1; const d=Math.sqrt(d2);
+          const f=REP/d2; const ux=dx/d, uy=dy/d;
+          fx[i]-=f*ux; fy[i]-=f*uy; fx[j]+=f*ux; fy[j]+=f*uy;
+        }
+      }
+      const idxMap = new Map(nodes.map((n,i)=>[n.id,i]));
+      for (const e of edges) {
+        const si=idxMap.get(e.source), ti=idxMap.get(e.target);
+        if (si==null||ti==null) continue;
+        const dx=nodes[ti].x-nodes[si].x, dy=nodes[ti].y-nodes[si].y;
+        const d=Math.sqrt(dx*dx+dy*dy)+0.01;
+        const f=K_SPRING*(d-REST); const ux=dx/d, uy=dy/d;
+        fx[si]+=f*ux; fy[si]+=f*uy; fx[ti]-=f*ux; fy[ti]-=f*uy;
+      }
+      for (let i=0;i<nodes.length;i++) {
+        fx[i]-=GRAV*nodes[i].x; fy[i]-=GRAV*nodes[i].y;
+      }
+      for (let i=0;i<nodes.length;i++) {
+        if (nodes[i].pinned) continue;
+        nodes[i].vx=(nodes[i].vx+fx[i])*DAMP; nodes[i].vy=(nodes[i].vy+fy[i])*DAMP;
+        nodes[i].x+=nodes[i].vx; nodes[i].y+=nodes[i].vy;
+      }
+    }
+
+    function draw(ctx: CanvasRenderingContext2D) {
+      const { nodes, edges, pan, zoom, hoverId, w, h } = sim;
+      const dpr = window.devicePixelRatio || 1;
+      ctx.clearRect(0, 0, w*dpr, h*dpr);
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      ctx.translate(w/2+pan.x, h/2+pan.y);
+      ctx.scale(zoom, zoom);
+
+      const nodeMap = new Map(nodes.map(n=>[n.id,n]));
+      // Edges
+      for (const e of edges) {
+        const s=nodeMap.get(e.source), t=nodeMap.get(e.target);
+        if (!s||!t) continue;
+        ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(t.x,t.y);
+        ctx.strokeStyle="rgba(255,255,255,0.13)"; ctx.lineWidth=1.2/zoom; ctx.stroke();
+      }
+      // Nodes
+      for (const n of nodes) {
+        const hov=n.id===hoverId;
+        const col=colorMap.get(n.bucketId)??"#00ffcc";
+        const r=hov?9:7;
+        if (hov) {
+          const g=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,22/zoom);
+          g.addColorStop(0,col+"50"); g.addColorStop(1,col+"00");
+          ctx.beginPath(); ctx.arc(n.x,n.y,22/zoom,0,Math.PI*2);
+          ctx.fillStyle=g; ctx.fill();
+        }
+        ctx.beginPath(); ctx.arc(n.x,n.y,r/zoom,0,Math.PI*2);
+        ctx.fillStyle=hov?col:col+"bb"; ctx.fill();
+        ctx.strokeStyle=hov?col:col+"44"; ctx.lineWidth=(hov?1.5:1)/zoom; ctx.stroke();
+        if (hov||zoom>0.65) {
+          const fs=Math.round(10.5/zoom);
+          ctx.font=`${hov?600:400} ${fs}px system-ui,sans-serif`;
+          ctx.fillStyle=hov?"#fff":"rgba(255,255,255,0.55)";
+          ctx.textAlign="center";
+          ctx.fillText(n.label, n.x, n.y+(r+11)/zoom);
+        }
+      }
+      ctx.restore();
+    }
+
+    function loop() {
+      const ctx=canvas.getContext("2d");
+      if (ctx) { tick(); draw(ctx); }
+      sim.raf=requestAnimationFrame(loop);
+    }
+    sim.raf=requestAnimationFrame(loop);
+    return () => { cancelAnimationFrame(sim.raf); ro.disconnect(); };
+  }, [buckets]);
+
+  const toGraph = useCallback((cx:number, cy:number)=>{
+    const canvas=canvasRef.current; if (!canvas) return {x:0,y:0};
+    const r=canvas.getBoundingClientRect(), sim=simRef.current;
+    return { x:(cx-r.left-sim.w/2-sim.pan.x)/sim.zoom, y:(cy-r.top-sim.h/2-sim.pan.y)/sim.zoom };
+  },[]);
+
+  const hitNode = useCallback((gx:number,gy:number)=>{
+    const sim=simRef.current;
+    const radius=12/sim.zoom;
+    for (const n of sim.nodes) { const dx=n.x-gx,dy=n.y-gy; if (dx*dx+dy*dy<=radius*radius) return n; }
+    return null;
+  },[]);
+
+  const onMouseMove=useCallback((e:React.MouseEvent<HTMLCanvasElement>)=>{
+    const sim=simRef.current; const gp=toGraph(e.clientX,e.clientY);
+    if (sim.dragId) {
+      const n=sim.nodes.find(n=>n.id===sim.dragId);
+      if (n){n.x=gp.x+sim.dragOffset.x;n.y=gp.y+sim.dragOffset.y;n.vx=0;n.vy=0;}
+      sim.didDrag=true; return;
+    }
+    if (sim.isPanning) {
+      sim.pan.x=e.clientX-sim.panStart.x; sim.pan.y=e.clientY-sim.panStart.y;
+      sim.didDrag=true; return;
+    }
+    const hit=hitNode(gp.x,gp.y); sim.hoverId=hit?.id??null;
+    if (canvasRef.current) canvasRef.current.style.cursor=hit?"pointer":"grab";
+  },[toGraph,hitNode]);
+
+  const onMouseDown=useCallback((e:React.MouseEvent<HTMLCanvasElement>)=>{
+    const sim=simRef.current; const gp=toGraph(e.clientX,e.clientY);
+    sim.didDrag=false;
+    const hit=hitNode(gp.x,gp.y);
+    if (hit){sim.dragId=hit.id;sim.dragOffset={x:hit.x-gp.x,y:hit.y-gp.y};hit.pinned=true;}
+    else {sim.isPanning=true;sim.panStart={x:e.clientX-sim.pan.x,y:e.clientY-sim.pan.y};}
+  },[toGraph,hitNode]);
+
+  const onMouseUp=useCallback(()=>{
+    const sim=simRef.current;
+    if (sim.dragId){const n=sim.nodes.find(n=>n.id===sim.dragId);if(n)n.pinned=false;sim.dragId=null;}
+    sim.isPanning=false;
+  },[]);
+
+  const onClick=useCallback((e:React.MouseEvent<HTMLCanvasElement>)=>{
+    const sim=simRef.current; if (sim.didDrag) return;
+    const gp=toGraph(e.clientX,e.clientY); const hit=hitNode(gp.x,gp.y);
+    if (hit) onOpenFile({name:hit.label+".md",relPath:hit.relPath,fullPath:hit.fullPath,type:"file",children:undefined});
+  },[toGraph,hitNode,onOpenFile]);
+
+  const onWheel=useCallback((e:React.WheelEvent<HTMLCanvasElement>)=>{
+    e.preventDefault();
+    const sim=simRef.current;
+    sim.zoom=Math.max(0.15,Math.min(5,sim.zoom*(e.deltaY>0?0.92:1.09)));
+  },[]);
+
+  const hasFiles = buckets.some(b => (bucketTrees[b.id]?.tree?.length ?? 0) > 0);
+
+  if (!hasFiles) return (
+    <div className="vault-note-placeholder">
+      <FileText size={32} style={{opacity:0.2}}/>
+      <span>Select a file to open it</span>
+    </div>
+  );
+
+  return (
+    <div className="vault-graph-wrap">
+      <canvas ref={canvasRef} className="vault-graph-canvas"
+        onMouseMove={onMouseMove} onMouseDown={onMouseDown}
+        onMouseUp={onMouseUp} onClick={onClick} onWheel={onWheel}
+      />
+      <div className="vault-graph-legend">
+        {buckets.map((b,i)=>(
+          <span key={b.id} className="vault-graph-legend-item">
+            <span className="vault-graph-legend-dot" style={{background:BUCKET_COLORS[i%BUCKET_COLORS.length]}}/>
+            {b.name}
+          </span>
+        ))}
+      </div>
+      <div className="vault-graph-hint">scroll to zoom · drag to pan · click to open</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Tab 1: Explorer
 // ---------------------------------------------------------------------------
 
@@ -815,7 +1073,7 @@ function ExplorerTab({
           </div>{/* end vault-tree-scroll-body */}
         </div>
 
-        {/* Editor panel */}
+        {/* Editor panel — graph when idle, editor when file open */}
         <div className="vault-panel-editor">
           {openFile ? (
             <VaultEditor
@@ -831,10 +1089,11 @@ function ExplorerTab({
               onClose={() => setOpenFile(null)}
             />
           ) : (
-            <div className="vault-note-placeholder">
-              <FileText size={32} style={{ opacity: 0.2 }} />
-              <span>Select a file to open it</span>
-            </div>
+            <VaultGraph
+              buckets={buckets}
+              bucketTrees={bucketTrees}
+              onOpenFile={openFileNode}
+            />
           )}
         </div>
       </div>
