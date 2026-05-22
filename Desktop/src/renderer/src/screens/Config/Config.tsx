@@ -223,9 +223,11 @@ function Config({ profile: _profile, visible }: ConfigProps): React.JSX.Element 
     const ordered = categoryOrder.filter((c) => allCats.includes(c));
     const extra = allCats.filter((c) => !categoryOrder.includes(c)).sort();
     // Merge + dedup + ensure Model APIs is first
-    const seen = new Set([...ordered, ...extra]);
-    seen.add("model_apis");
-    return [...seen];
+    const merged: string[] = [];
+    for (const c of ["model_apis", ...ordered, ...extra]) {
+      if (!merged.includes(c)) merged.push(c);
+    }
+    return merged;
   }, [schema, categoryOrder]);
 
   const effectiveCategory = activeCategory || categories[0] || "";
