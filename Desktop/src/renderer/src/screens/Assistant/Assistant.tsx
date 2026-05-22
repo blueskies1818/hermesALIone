@@ -64,6 +64,9 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     const cy = canvas.height / 2;
     const baseRadius = 80;
     const len = analyser ? (dataArray ? dataArray.length : 256) : 256;
+    // Only the first half of frequency bins carry meaningful voice content.
+    // We mirror them back around the circle so the whole ring stays active.
+    const halfLen = Math.floor(len / 2);
 
     // Use real mic data if available, otherwise generate synthetic idle wave
     if (analyser && dataArray) {
@@ -76,8 +79,9 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
         dataArrayRef.current = new Uint8Array(len);
       }
       const arr = dataArrayRef.current;
-      for (let i = 0; i < len; i++) {
-        const angle = (i / len) * Math.PI * 2;
+      // Generate values only for the visible half-range so the phase spans the full arc
+      for (let i = 0; i <= halfLen; i++) {
+        const angle = (i / halfLen) * Math.PI * 2;
         const wave = Math.sin(angle * 3 + t * 0.7) * 0.5 + 0.5;
         const pulse = Math.sin(t * 1.3) * 0.5 + 0.5;
         arr[i] = Math.floor((wave * pulse * 30 + 5) * (0.7 + pulse * 0.3));
@@ -86,14 +90,14 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
     const rawArr = dataArrayRef.current!;
 
-    // Exponential smoothing + decaying-peak normalization
+    // Exponential smoothing + decaying-peak normalization (first half only)
     if (!smoothedRef.current || smoothedRef.current.length !== len) {
       smoothedRef.current = new Float32Array(len);
     }
     const smoothed = smoothedRef.current;
     const SMOOTH = 0.65;
     let maxVal = 0;
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i <= halfLen; i++) {
       smoothed[i] = SMOOTH * smoothed[i] + (1 - SMOOTH) * rawArr[i];
       if (smoothed[i] > maxVal) maxVal = smoothed[i];
     }
@@ -107,7 +111,10 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Continuous filled ribbon — outer edge follows the wave, inner edge at base radius
+    // Continuous filled ribbon — outer edge follows the mirrored wave, inner edge at base radius.
+    // Mirroring: first half traverses bins 0→halfLen, second half mirrors halfLen→0.
+    // Both endpoints land on bin 0, guaranteeing a seamless join with no hard cutoff.
+    // Start angle at -π/2 so the peak sits at 12 o'clock.
     const gradient = ctx.createRadialGradient(cx, cy, baseRadius, cx, cy, baseRadius + 100);
     gradient.addColorStop(0, "#00ffcc");
     gradient.addColorStop(0.5, "#00ffcc");
@@ -116,8 +123,9 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     ctx.beginPath();
     for (let i = 0; i <= len; i++) {
       const idx = i % len;
-      const angle = (idx / len) * Math.PI * 2;
-      const barHeight = smoothed[idx] * normFactor;
+      const angle = (idx / len) * Math.PI * 2 - Math.PI / 2;
+      const bin = idx <= halfLen ? idx : len - idx;
+      const barHeight = smoothed[bin] * normFactor;
       const x = cx + Math.cos(angle) * (baseRadius + barHeight);
       const y = cy + Math.sin(angle) * (baseRadius + barHeight);
       if (i === 0) ctx.moveTo(x, y);
@@ -125,7 +133,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     }
     for (let i = len; i >= 0; i--) {
       const idx = i % len;
-      const angle = (idx / len) * Math.PI * 2;
+      const angle = (idx / len) * Math.PI * 2 - Math.PI / 2;
       const x = cx + Math.cos(angle) * baseRadius;
       const y = cy + Math.sin(angle) * baseRadius;
       ctx.lineTo(x, y);
@@ -138,10 +146,10 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     ctx.strokeStyle = "rgba(0,255,204,0.4)";
     ctx.stroke();
 
-    // Center pulse circle
+    // Center pulse circle — average only the visible bins
     let sum = 0;
-    for (let i = 0; i < len; i++) sum += smoothed[i];
-    const avg = sum / len;
+    for (let i = 0; i <= halfLen; i++) sum += smoothed[i];
+    const avg = sum / (halfLen + 1);
 
     ctx.beginPath();
     ctx.arc(cx, cy, baseRadius - 5 + avg * normFactor * 0.2, 0, Math.PI * 2);
