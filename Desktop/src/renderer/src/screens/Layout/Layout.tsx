@@ -179,6 +179,16 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
     setCurrentSessionId(null);
   }, []);
 
+  const handleDeleteSession = useCallback(
+    (sessionId: string) => {
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setMessages([]);
+      }
+    },
+    [currentSessionId],
+  );
+
   const handleResumeSession = useCallback(
     async (sessionId: string) => {
       setCurrentSessionId(sessionId);
@@ -384,6 +394,7 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
             <Sessions
               onResumeSession={handleResumeSession}
               onNewChat={handleNewChat}
+              onDeleteSession={handleDeleteSession}
               currentSessionId={currentSessionId}
               visible={view === "sessions"}
             />
