@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Mic, MicOff } from "lucide-react";
 import { useVoiceMode } from "@renderer/hooks/useVoiceMode";
 import ModelSelector from "@renderer/components/ModelSelector";
 
@@ -16,6 +17,9 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const idleTimeRef = useRef<number>(0);
+  // Normalization state — exponential smoothing + decaying peak tracker
+  const smoothedRef = useRef<Float32Array | null>(null);
+  const peakRef = useRef<number>(30);
   const [micState, setMicState] = useState<MicState>("idle");
   const [micError, setMicError] = useState("");
   const [modelConfig, setModelConfig] = useState({
@@ -80,12 +84,27 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
       }
     }
 
+    const rawArr = dataArrayRef.current!;
+
+    // Exponential smoothing + decaying-peak normalization
+    if (!smoothedRef.current || smoothedRef.current.length !== len) {
+      smoothedRef.current = new Float32Array(len);
+    }
+    const smoothed = smoothedRef.current;
+    const SMOOTH = 0.65;
+    let maxVal = 0;
+    for (let i = 0; i < len; i++) {
+      smoothed[i] = SMOOTH * smoothed[i] + (1 - SMOOTH) * rawArr[i];
+      if (smoothed[i] > maxVal) maxVal = smoothed[i];
+    }
+    // Peak decays slowly so visualizer always reflects current amplitude scale
+    peakRef.current = Math.max(peakRef.current * 0.992, Math.max(maxVal, 25));
+    const normFactor = 90 / peakRef.current;
+
     const cs = getComputedStyle(canvas);
     const bg = cs.getPropertyValue("--bg-primary").trim() || "#12131c";
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const arr = dataArrayRef.current!;
 
     // Continuous filled ribbon — outer edge follows the wave, inner edge at base radius
     const gradient = ctx.createRadialGradient(cx, cy, baseRadius, cx, cy, baseRadius + 100);
@@ -97,7 +116,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     for (let i = 0; i <= len; i++) {
       const idx = i % len;
       const angle = (idx / len) * Math.PI * 2;
-      const barHeight = arr[idx] * 0.6;
+      const barHeight = smoothed[idx] * normFactor;
       const x = cx + Math.cos(angle) * (baseRadius + barHeight);
       const y = cy + Math.sin(angle) * (baseRadius + barHeight);
       if (i === 0) ctx.moveTo(x, y);
@@ -120,11 +139,11 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
     // Center pulse circle
     let sum = 0;
-    for (let i = 0; i < len; i++) sum += arr[i];
+    for (let i = 0; i < len; i++) sum += smoothed[i];
     const avg = sum / len;
 
     ctx.beginPath();
-    ctx.arc(cx, cy, baseRadius - 5 + avg * 0.2, 0, Math.PI * 2);
+    ctx.arc(cx, cy, baseRadius - 5 + avg * normFactor * 0.2, 0, Math.PI * 2);
     ctx.fillStyle = bg;
     ctx.fill();
 
@@ -206,6 +225,19 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     }
   }, [startListening]);
 
+  const stopAudio = useCallback(() => {
+    interrupt();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    analyserRef.current = null;
+    dataArrayRef.current = null;
+    streamRef.current = null;
+    smoothedRef.current = null;
+    peakRef.current = 30;
+    setMicState("idle");
+  }, [interrupt]);
+
   // ------------------------------------------------------------------
   // When transcript is ready, send it to the agent via chat pipeline
   // ------------------------------------------------------------------
@@ -253,22 +285,14 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
   const hintText = ((): string | undefined => {
     if (micState === "checking") return "Requesting microphone access...";
     if (micState === "error") return micError || "Microphone error";
-    switch (voiceState) {
-      case "listening": return "Listening...";
-      case "recording": return "Recording...";
-      case "transcribing": return "Transcribing...";
-      case "thinking": return "Processing...";
-      case "speaking": return "Speaking...";
-      case "error": return voiceSession.error;
-    }
-    if (micState === "idle") return "Click anywhere to enable voice assistant";
+    if (voiceState === "error") return voiceSession.error;
     return undefined;
   })();
 
+  const micActive = micState !== "idle" && micState !== "error";
+
+  // Canvas click only interrupts an active voice turn — toggle is handled by the mic button
   const clickHandler = ((): (() => void) | undefined => {
-    if (micState === "idle") return startAudio;
-    if (micState === "error") return startAudio;
-    if (voiceState === "idle") return startListening;
     if (voiceState === "speaking" || voiceState === "thinking" ||
         voiceState === "recording" || voiceState === "listening") {
       return interrupt;
@@ -293,7 +317,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
       <canvas ref={canvasRef} width={500} height={500} />
 
       {hintText && (
-        <div className={`assistant-mic-hint ${voiceState === "error" ? "assistant-mic-error" : ""}`}>
+        <div className={`assistant-mic-hint ${micState === "error" || voiceState === "error" ? "assistant-mic-error" : ""}`}>
           {hintText}
         </div>
       )}
@@ -312,8 +336,8 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
         </div>
       )}
 
-      {/* PTT buttons */}
-      {micState !== "idle" && micState !== "checking" && micState !== "error" && (
+      {/* PTT buttons — shown when mic is active */}
+      {micActive && micState !== "checking" && (
         <div className="assistant-controls">
           {voiceState === "idle" && (
             <button className="assistant-btn" onClick={startListening}>
@@ -321,17 +345,30 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
             </button>
           )}
           {voiceState === "recording" && (
-            <button className="assistant-btn" onClick={stopAndTranscribe}>
+            <button className="assistant-btn" onClick={(e) => { e.stopPropagation(); stopAndTranscribe(); }}>
               Stop & Transcribe
             </button>
           )}
           {(voiceState === "thinking" || voiceState === "speaking") && (
-            <button className="assistant-btn assistant-btn-danger" onClick={interrupt}>
+            <button className="assistant-btn assistant-btn-danger" onClick={(e) => { e.stopPropagation(); interrupt(); }}>
               Interrupt
             </button>
           )}
         </div>
       )}
+
+      {/* Mic on/off toggle */}
+      <button
+        className={`assistant-mic-toggle${micActive ? " assistant-mic-toggle-active" : ""}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (micActive) stopAudio();
+          else startAudio();
+        }}
+        title={micActive ? "Turn off microphone" : "Turn on microphone"}
+      >
+        {micActive ? <Mic size={20} /> : <MicOff size={20} />}
+      </button>
     </div>
   );
 }

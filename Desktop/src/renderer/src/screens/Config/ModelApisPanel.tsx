@@ -474,9 +474,6 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
       <div className="model-apis-provider-grid">
         {[...PROVIDERS, ...customProviders].map((p) => {
           const currentKey = envVars[p.envKey] || "";
-          const currentBaseUrl = p.envBaseUrlKey
-            ? envVars[p.envBaseUrlKey] || ""
-            : "";
           return (
             <div key={p.slug} className="model-apis-provider-card">
               <div className="model-apis-provider-header">
@@ -515,33 +512,6 @@ function ModelApisPanel({ profile }: ModelApisPanelProps): React.JSX.Element {
                     }
                   }}
                 />
-
-                {p.envBaseUrlKey && (
-                  <input
-                    className="input config-input"
-                    type="text"
-                    placeholder={`Base URL (defaults to ${p.label} API)`}
-                    value={currentBaseUrl}
-                    onChange={(e) =>
-                      setEnvVars((prev) => ({
-                        ...prev,
-                        [p.envBaseUrlKey!]: e.target.value,
-                      }))
-                    }
-                    onBlur={(e) => {
-                      const v = e.target.value;
-                      if (v !== (savedEnvRef.current[p.envBaseUrlKey!] || "")) {
-                        handleSaveEnv(p.envBaseUrlKey!, v);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        const v = e.currentTarget.value;
-                        handleSaveEnv(p.envBaseUrlKey!, v);
-                      }
-                    }}
-                  />
-                )}
               </div>
 
               <div className="model-apis-provider-actions">
