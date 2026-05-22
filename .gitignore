@@ -58,6 +58,7 @@ node_modules/
 !flake.lock
 .clean_shutdown
 gateway_state.json
+gateway.pid
 channel_directory.json
 desktop.json
 desktop/sessions.json
