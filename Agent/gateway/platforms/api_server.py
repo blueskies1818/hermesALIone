@@ -1154,20 +1154,23 @@ class APIServerAdapter(BasePlatformAdapter):
         if key_err is not None:
             return key_err
 
-        # Allow caller to continue an existing session by passing X-Hermes-Session-Id.
-        # When provided, history is loaded from state.db instead of from the request body.
+        # Allow caller to continue an existing session.
+        # Accept session ID from either the X-Hermes-Session-Id header (legacy)
+        # or the body field session_id (used by the Electron desktop client).
         #
         # Security: session continuation exposes conversation history, so it is
-        # only allowed when the API key is configured and the request is
-        # authenticated.  Without this gate, any unauthenticated client could
-        # read arbitrary session history by guessing/enumerating session IDs.
+        # only allowed when the API key is configured OR the request originates
+        # from localhost (trusted desktop/CLI callers).  Remote unauthenticated
+        # clients cannot enumerate session history this way.
+        is_local_request = request.remote in ("127.0.0.1", "::1", "localhost")
         provided_session_id = request.headers.get("X-Hermes-Session-Id", "").strip()
+        if not provided_session_id:
+            provided_session_id = (body.get("session_id") or "").strip()
         if provided_session_id:
-            if not self._api_key:
+            if not self._api_key and not is_local_request:
                 logger.warning(
-                    "Session continuation via X-Hermes-Session-Id rejected: "
-                    "no API key configured.  Set API_SERVER_KEY to enable "
-                    "session continuity."
+                    "Session continuation rejected: no API key configured "
+                    "and request is not from localhost."
                 )
                 return web.json_response(
                     _openai_error(
@@ -1463,6 +1466,7 @@ class APIServerAdapter(BasePlatformAdapter):
             # only happens when a voice_mode request is actually made.
             _tts_buf = None
             _tts_audio_index = 0
+            _tts_tasks: list = []  # background synthesis tasks
             if voice_mode:
                 try:
                     from tools.tts_streaming import TtsSentenceBuffer, stream_tts_to_buffer
@@ -1523,11 +1527,12 @@ class APIServerAdapter(BasePlatformAdapter):
                     }
                     await response.write(f"data: {json.dumps(content_chunk)}\n\n".encode())
 
-                    # Feed text delta to TTS sentence buffer
+                    # Feed text delta to TTS sentence buffer — fire-and-forget
+                    # so synthesis never stalls the text stream.
                     if _tts_buf is not None and isinstance(item, str):
                         sentences = _tts_buf.feed(item)
                         for sent in sentences:
-                            await _emit_tts_audio(sent)
+                            _tts_tasks.append(asyncio.create_task(_emit_tts_audio(sent)))
 
                 return time.monotonic()
 
@@ -1558,11 +1563,21 @@ class APIServerAdapter(BasePlatformAdapter):
 
                 last_activity = await _emit(delta)
 
-            # Flush any remaining TTS buffer content
+            # Flush any remaining TTS buffer content and wait for all
+            # background synthesis tasks before sending [DONE].
             if _tts_buf is not None:
                 remaining = _tts_buf.flush_remaining()
                 if remaining:
-                    await _emit_tts_audio(remaining)
+                    _tts_tasks.append(asyncio.create_task(_emit_tts_audio(remaining)))
+            if _tts_tasks:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*_tts_tasks, return_exceptions=True),
+                        timeout=8.0,
+                    )
+                except asyncio.TimeoutError:
+                    for t in _tts_tasks:
+                        t.cancel()
 
             # Get usage from completed agent
             usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}

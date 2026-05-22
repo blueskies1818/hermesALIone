@@ -14,11 +14,19 @@ if exist ".venv\Scripts\activate.bat" (
     call .venv\Scripts\activate.bat
 )
 
-REM -- Check if gateway is already running on port 8642 ------------------------
+REM -- Kill any stale hermes processes (by name) so fresh code is always loaded
+echo Stopping any existing hermes processes...
+taskkill /F /IM hermes.exe >nul 2>&1
+taskkill /F /IM hermes-agent.exe >nul 2>&1
+
+REM -- Kill any stale gateway process on port 8642 so fresh code is always loaded
 netstat -ano 2>nul | findstr ":8642" >nul
 if %errorlevel% equ 0 (
-    echo Hermes Agent gateway is already running on port 8642.
-    goto check_dashboard
+    echo Stopping existing gateway on port 8642...
+    for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":8642 "') do (
+        powershell -NoProfile -Command "Stop-Process -Id %%p -Force -ErrorAction SilentlyContinue" >nul 2>&1
+    )
+    timeout /t 2 /nobreak >nul
 )
 
 echo Starting Hermes Agent gateway...

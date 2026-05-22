@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, MicOff } from "lucide-react";
-import { useVoiceMode, buildVoiceSystemPrompt } from "@renderer/hooks/useVoiceMode";
+import { useVoiceMode } from "@renderer/hooks/useVoiceMode";
 import ModelSelector from "@renderer/components/ModelSelector";
 
 type MicState = "idle" | "checking" | "listening" | "error";
@@ -12,6 +12,7 @@ interface AssistantProps {
 function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sessionIdRef = useRef<string | undefined>(undefined);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
@@ -45,10 +46,19 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     session: voiceSession,
     messages,
     startListening,
+    stopAndTranscribe,
     interrupt,
     onAgentDone,
     onAgentError,
+    ttsPlaybackRef,
+    ttsDebug,
   } = useVoiceMode(analyserRef, dataArrayRef, streamRef);
+
+  // Track voice state in a ref so the rAF draw loop can read it without stale closure
+  const voiceStateRef = useRef(voiceSession.state);
+  useEffect(() => {
+    voiceStateRef.current = voiceSession.state;
+  }, [voiceSession.state]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -64,9 +74,17 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     const cy = canvas.height / 2;
     const baseRadius = 95;
     const len = analyser ? (dataArray ? dataArray.length : 256) : 256;
+    // Only the first half of frequency bins carry meaningful voice content.
+    // We mirror them back around the circle so the whole ring stays active.
     const halfLen = Math.floor(len / 2);
 
-    if (analyser && dataArray) {
+    // Read audio data: TTS analyser when speaking, mic analyser otherwise.
+    if (voiceStateRef.current === "speaking" && ttsPlaybackRef.current) {
+      if (!dataArrayRef.current || dataArrayRef.current.length !== len) {
+        dataArrayRef.current = new Uint8Array(len);
+      }
+      ttsPlaybackRef.current.getFrequencyData(dataArrayRef.current);
+    } else if (analyser && dataArray) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       analyser.getByteFrequencyData(dataArray as any);
     } else if (!dataArrayRef.current) {
@@ -75,11 +93,13 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
     const rawArr = dataArrayRef.current!;
 
+    // Exponential smoothing + decaying-peak normalization (first half only)
     if (!smoothedRef.current || smoothedRef.current.length !== len) {
       smoothedRef.current = new Float32Array(len);
     }
     const smoothed = smoothedRef.current;
     const SMOOTH = 0.65;
+    // Noise floor cuts DC bias / mic hiss so silent bins render as flat zero
     const NOISE_FLOOR = 10;
     let maxVal = 0;
     for (let i = 0; i <= halfLen; i++) {
@@ -94,6 +114,10 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Continuous filled ribbon — outer edge follows the mirrored wave, inner edge at base radius.
+    // Mirroring: first half traverses bins 0→halfLen, second half mirrors halfLen→0.
+    // Both endpoints land on bin 0, guaranteeing a seamless join with no hard cutoff.
+    // Start angle at -π/2 so the peak sits at 12 o'clock.
     const gradient = ctx.createRadialGradient(cx, cy, baseRadius, cx, cy, baseRadius + 120);
     gradient.addColorStop(0, "#00ffcc");
     gradient.addColorStop(0.5, "#00ffcc");
@@ -125,6 +149,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     ctx.strokeStyle = "rgba(0,255,204,0.4)";
     ctx.stroke();
 
+    // Center pulse circle — average floor-subtracted values to match ribbon energy
     let sum = 0;
     for (let i = 0; i <= halfLen; i++) sum += Math.max(0, smoothed[i] - NOISE_FLOOR);
     const avg = sum / (halfLen + 1);
@@ -149,7 +174,8 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
   const startAudio = useCallback(async () => {
     if (audioCtxRef.current) {
-      // Mic already set up — start listening
+      // Mic already set up — ensure TTS context is running and start listening
+      ttsPlaybackRef.current?.ensureContext();
       startListening();
       return;
     }
@@ -185,8 +211,12 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
       analyserRef.current = analyser;
       dataArrayRef.current = new Uint8Array(bufferLength);
 
+      // Pre-initialize TTS AudioContext from within this user gesture so
+      // Chromium's autoplay policy allows audio playback when TTS arrives later.
+      ttsPlaybackRef.current?.ensureContext();
+
       setMicState("listening");
-      // Auto-start listening once mic is ready — always-on mode
+      // Auto-start listening once mic is ready
       startListening();
     } catch (err) {
       const name = err instanceof DOMException ? err.name : "Unknown";
@@ -225,29 +255,14 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
   }, [interrupt]);
 
   // ------------------------------------------------------------------
-  // When transcript is ready, send it to the agent with system prompt
-  // and recent conversation history
+  // When transcript is ready, send it to the agent via chat pipeline
   // ------------------------------------------------------------------
 
   useEffect(() => {
     if (voiceSession.state === "thinking" && voiceSession.transcript) {
-      const systemPrompt = buildVoiceSystemPrompt(messages);
-      const history: Array<{ role: string; content: string }> = [
-        { role: "system", content: systemPrompt },
-      ];
-      // Include last few exchanges for context compression
-      const recent = messages.slice(-8);
-      for (const m of recent) {
-        history.push({ role: m.role, content: m.content });
-      }
-      window.hermesAPI.sendMessage(
-        voiceSession.transcript,
-        profile,
-        undefined, // no resume session
-        history,
-      );
+      window.hermesAPI.sendMessage(voiceSession.transcript, profile, sessionIdRef.current, undefined, undefined, true);
     }
-  }, [voiceSession.state, voiceSession.transcript, messages, profile]);
+  }, [voiceSession.state, voiceSession.transcript, profile]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -259,7 +274,8 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
   // ------------------------------------------------------------------
 
   useEffect(() => {
-    const cleanupDone = window.hermesAPI.onChatDone(() => {
+    const cleanupDone = window.hermesAPI.onChatDone((sessionId) => {
+      if (sessionId) sessionIdRef.current = sessionId;
       onAgentDone();
     });
     const cleanupError = window.hermesAPI.onChatError((error: string) => {
@@ -297,7 +313,16 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
   const micActive = micState !== "idle" && micState !== "error";
 
-  // Canvas click interrupts active voice turn or idle agent speech
+  // Auto-restart VAD whenever we return to idle with the mic on.
+  // Covers: post-response, VAD timeout (MAX_WAIT_SEC), and interrupt.
+  useEffect(() => {
+    if (voiceSession.state === "idle" && micActive) {
+      const t = setTimeout(() => startListening(), 400);
+      return () => clearTimeout(t);
+    }
+  }, [voiceSession.state, micActive, startListening]);
+
+  // Canvas click only interrupts an active voice turn — toggle is handled by the mic button
   const clickHandler = ((): (() => void) | undefined => {
     if (voiceState === "speaking" || voiceState === "thinking" ||
         voiceState === "recording" || voiceState === "listening") {
@@ -348,12 +373,27 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
         <div className="assistant-voice-state">
           <span className={`assistant-voice-dot assistant-voice-dot-${voiceState}`} />
           <span className="assistant-voice-label">
-            {voiceState === "listening" ? "Listening..." :
+            {voiceState === "listening" ? "Listening for speech" :
              voiceState === "recording" ? "Recording" :
              voiceState === "transcribing" ? "Transcribing audio" :
              voiceState === "thinking" ? "Agent thinking" :
              voiceState === "speaking" ? "Agent speaking" : ""}
           </span>
+        </div>
+      )}
+
+      {/* TTS debug indicator — shows chunk pipeline state */}
+      {micActive && (
+        <div className="assistant-tts-debug">
+          <span className="assistant-tts-debug-label">TTS</span>
+          <span className="assistant-tts-debug-stat">
+            {ttsDebug.chunksReceived === 0
+              ? "no chunks"
+              : `${ttsDebug.chunksReceived} recv · ${ttsDebug.chunksPlayed} queued · ${ttsDebug.playbackState}`}
+          </span>
+          {ttsDebug.lastError && (
+            <span className="assistant-tts-debug-error">{ttsDebug.lastError}</span>
+          )}
         </div>
       )}
 

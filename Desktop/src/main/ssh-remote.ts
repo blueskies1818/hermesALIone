@@ -1137,6 +1137,41 @@ conn.close()
   }
 }
 
+export async function sshDeleteSession(
+  config: SshConfig,
+  sessionId: string,
+  profile?: string,
+): Promise<boolean> {
+  const script = `
+import sqlite3, json, os, sys
+payload = json.load(sys.stdin)
+profile = payload.get("profile")
+session_id = payload.get("sessionId") or ""
+db = os.path.expanduser(f"~/.hermes/profiles/{profile}/state.db" if profile and profile != "default" else "~/.hermes/state.db")
+if not os.path.exists(db):
+    print(json.dumps(False)); sys.exit(0)
+conn = sqlite3.connect(db)
+cur = conn.execute("SELECT COUNT(*) FROM sessions WHERE id=?", (session_id,))
+if cur.fetchone()[0] == 0:
+    conn.close(); print(json.dumps(False)); sys.exit(0)
+conn.execute("UPDATE sessions SET parent_session_id=NULL WHERE parent_session_id=?", (session_id,))
+conn.execute("DELETE FROM messages WHERE session_id=?", (session_id,))
+conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+conn.commit(); conn.close()
+print(json.dumps(True))
+`;
+  try {
+    const out = await sshPython(
+      config,
+      script,
+      pythonJsonInput({ profile, sessionId }),
+    );
+    return JSON.parse(out.trim());
+  } catch {
+    return false;
+  }
+}
+
 export async function sshSearchSessions(
   config: SshConfig,
   query: string,
