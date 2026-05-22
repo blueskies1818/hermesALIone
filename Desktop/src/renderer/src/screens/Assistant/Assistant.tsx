@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, MicOff } from "lucide-react";
-import { useVoiceMode } from "@renderer/hooks/useVoiceMode";
+import { useVoiceMode, buildVoiceSystemPrompt } from "@renderer/hooks/useVoiceMode";
 import ModelSelector from "@renderer/components/ModelSelector";
 
 type MicState = "idle" | "checking" | "listening" | "error";
@@ -45,7 +45,6 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     session: voiceSession,
     messages,
     startListening,
-    stopAndTranscribe,
     interrupt,
     onAgentDone,
     onAgentError,
@@ -65,11 +64,8 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     const cy = canvas.height / 2;
     const baseRadius = 95;
     const len = analyser ? (dataArray ? dataArray.length : 256) : 256;
-    // Only the first half of frequency bins carry meaningful voice content.
-    // We mirror them back around the circle so the whole ring stays active.
     const halfLen = Math.floor(len / 2);
 
-    // Read mic data when available; otherwise leave array zeroed (no passive animation).
     if (analyser && dataArray) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       analyser.getByteFrequencyData(dataArray as any);
@@ -79,13 +75,11 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
     const rawArr = dataArrayRef.current!;
 
-    // Exponential smoothing + decaying-peak normalization (first half only)
     if (!smoothedRef.current || smoothedRef.current.length !== len) {
       smoothedRef.current = new Float32Array(len);
     }
     const smoothed = smoothedRef.current;
     const SMOOTH = 0.65;
-    // Noise floor cuts DC bias / mic hiss so silent bins render as flat zero
     const NOISE_FLOOR = 10;
     let maxVal = 0;
     for (let i = 0; i <= halfLen; i++) {
@@ -100,10 +94,6 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Continuous filled ribbon — outer edge follows the mirrored wave, inner edge at base radius.
-    // Mirroring: first half traverses bins 0→halfLen, second half mirrors halfLen→0.
-    // Both endpoints land on bin 0, guaranteeing a seamless join with no hard cutoff.
-    // Start angle at -π/2 so the peak sits at 12 o'clock.
     const gradient = ctx.createRadialGradient(cx, cy, baseRadius, cx, cy, baseRadius + 120);
     gradient.addColorStop(0, "#00ffcc");
     gradient.addColorStop(0.5, "#00ffcc");
@@ -135,7 +125,6 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     ctx.strokeStyle = "rgba(0,255,204,0.4)";
     ctx.stroke();
 
-    // Center pulse circle — average floor-subtracted values to match ribbon energy
     let sum = 0;
     for (let i = 0; i <= halfLen; i++) sum += Math.max(0, smoothed[i] - NOISE_FLOOR);
     const avg = sum / (halfLen + 1);
@@ -197,7 +186,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
       dataArrayRef.current = new Uint8Array(bufferLength);
 
       setMicState("listening");
-      // Auto-start listening once mic is ready
+      // Auto-start listening once mic is ready — always-on mode
       startListening();
     } catch (err) {
       const name = err instanceof DOMException ? err.name : "Unknown";
@@ -236,14 +225,29 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
   }, [interrupt]);
 
   // ------------------------------------------------------------------
-  // When transcript is ready, send it to the agent via chat pipeline
+  // When transcript is ready, send it to the agent with system prompt
+  // and recent conversation history
   // ------------------------------------------------------------------
 
   useEffect(() => {
     if (voiceSession.state === "thinking" && voiceSession.transcript) {
-      window.hermesAPI.sendMessage(voiceSession.transcript, profile);
+      const systemPrompt = buildVoiceSystemPrompt(messages);
+      const history: Array<{ role: string; content: string }> = [
+        { role: "system", content: systemPrompt },
+      ];
+      // Include last few exchanges for context compression
+      const recent = messages.slice(-8);
+      for (const m of recent) {
+        history.push({ role: m.role, content: m.content });
+      }
+      window.hermesAPI.sendMessage(
+        voiceSession.transcript,
+        profile,
+        undefined, // no resume session
+        history,
+      );
     }
-  }, [voiceSession.state, voiceSession.transcript, profile]);
+  }, [voiceSession.state, voiceSession.transcript, messages, profile]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -293,7 +297,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
   const micActive = micState !== "idle" && micState !== "error";
 
-  // Canvas click only interrupts an active voice turn — toggle is handled by the mic button
+  // Canvas click interrupts active voice turn or idle agent speech
   const clickHandler = ((): (() => void) | undefined => {
     if (voiceState === "speaking" || voiceState === "thinking" ||
         voiceState === "recording" || voiceState === "listening") {
@@ -344,7 +348,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
         <div className="assistant-voice-state">
           <span className={`assistant-voice-dot assistant-voice-dot-${voiceState}`} />
           <span className="assistant-voice-label">
-            {voiceState === "listening" ? "Listening for speech" :
+            {voiceState === "listening" ? "Listening..." :
              voiceState === "recording" ? "Recording" :
              voiceState === "transcribing" ? "Transcribing audio" :
              voiceState === "thinking" ? "Agent thinking" :
