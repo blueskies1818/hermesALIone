@@ -51,6 +51,26 @@ Both licensed under MIT.
 - Fixed duplicate React keys from default models sharing empty IDs
 - Save button properly shows disabled state when nothing has changed
 
+## Documentation
+
+Detailed documentation for each subsystem lives in [`Docs/`](Docs/):
+
+### CLI
+| File | Description |
+|------|-------------|
+| [CLI Overview](Docs/cli-overview.md) | Entry points, slash commands, REPL, tool library, architecture |
+| [CLI Gateway](Docs/cli-gateway.md) | Multi-platform messaging daemon, 19 platform adapters, agent cache |
+| [CLI Voice](Docs/cli-voice.md) | Voice mode pipeline, STT/TTS providers, push-to-talk and continuous VAD |
+| [CLI Config](Docs/cli-config.md) | YAML configuration system, profiles, provider/model settings |
+
+### Desktop
+| File | Description |
+|------|-------------|
+| [Desktop Overview](Docs/desktop-overview.md) | Electron + React architecture, 24 screens, main process modules |
+| [Connection Modes](Docs/desktop-connection-modes.md) | Local/remote/SSH connection setup, SSH tunnel lifecycle |
+| [Voice Assistant](Docs/desktop-voice-assistant.md) | VAD state machine, TTS pipeline, pre-roll buffer, audio visualizer |
+| [IPC API Reference](Docs/desktop-ipc-api.md) | Full `window.hermesAPI` surface — 100+ methods across all categories |
+
 ## Quick Links
 
 - [Desktop README](Desktop/README.md) — install, screenshots, features, development
