@@ -1078,6 +1078,24 @@ class APIServerAdapter(BasePlatformAdapter):
             except Exception as exc:
                 logger.debug("Session inbox watch error: %s", exc)
 
+    async def _vault_filer_loop(self) -> None:
+        """File task outcomes and idle conversations into the shared vault."""
+        from gateway import vault_filer
+        from hermes_cli.kanban_db import kanban_db_path
+        from hermes_constants import get_default_hermes_root
+
+        state_db = get_default_hermes_root() / "state.db"
+        while True:
+            try:
+                await asyncio.sleep(60)
+                result = await asyncio.to_thread(vault_filer.run_once, kanban_db_path(), state_db)
+                if result.get("projects"):
+                    logger.info("Vault filer updated: %s", result)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Vault filer error: %s", exc)
+
     async def _handle_session_events(self, request: "web.Request") -> "web.StreamResponse":
         """GET /v1/sessions/{session_id}/events — live events for a chat session.
 
@@ -3902,7 +3920,8 @@ class APIServerAdapter(BasePlatformAdapter):
             # Start background sweep to clean up orphaned (unconsumed) run streams
             sweep_task = asyncio.create_task(self._sweep_orphaned_runs())
             inbox_task = asyncio.create_task(self._inbox_watch_loop())
-            for _task in (sweep_task, inbox_task):
+            vault_task = asyncio.create_task(self._vault_filer_loop())
+            for _task in (sweep_task, inbox_task, vault_task):
                 try:
                     self._background_tasks.add(_task)
                 except TypeError:

@@ -710,6 +710,13 @@ def _handle_create(args: dict, **kw) -> str:
         # as ``task_id``; stamp it so the worker's outcome can be reported
         # back to that conversation (gateway/session_inbox.py).
         session_id = kw.get("task_id") or None
+    if session_id and not tenant:
+        try:
+            from gateway.agent_roster import get_session_project
+
+            tenant = get_session_project(session_id)
+        except Exception:
+            pass
     priority = args.get("priority")
     workspace_kind = args.get("workspace_kind")
     workspace_path = args.get("workspace_path")

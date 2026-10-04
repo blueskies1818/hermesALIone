@@ -35,8 +35,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _vault_dir() -> Path:
-    """~/.hermes/vault/ — created on first use."""
-    d = get_hermes_home() / "vault"
+    """<root data home>/vault/ — created on first use.
+
+    Theta: one vault shared by every agent (profile), so it can serve as
+    the overview of all projects; upstream used the profile's own home.
+    """
+    from hermes_constants import get_default_hermes_root
+
+    d = get_default_hermes_root() / "vault"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

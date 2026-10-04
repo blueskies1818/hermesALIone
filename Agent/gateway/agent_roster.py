@@ -136,6 +136,41 @@ def voice_agent_name() -> str:
     return str(theta_cfg.get("voice_agent") or "voice")
 
 
+GENERAL_PROJECT = "general"
+
+
+def _ensure_project_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS session_projects ("
+        " session_id TEXT PRIMARY KEY, project TEXT NOT NULL, updated_at REAL NOT NULL)"
+    )
+
+
+def set_session_project(session_id: str, project: str) -> str:
+    """Set the project a conversation belongs to (vault filing, task tenant)."""
+    name = " ".join(str(project or "").split())[:80] or GENERAL_PROJECT
+    with _db() as conn:
+        _ensure_project_table(conn)
+        conn.execute(
+            "INSERT INTO session_projects (session_id, project, updated_at) VALUES (?, ?, ?)"
+            " ON CONFLICT(session_id) DO UPDATE SET project = excluded.project,"
+            " updated_at = excluded.updated_at",
+            (session_id, name, time.time()),
+        )
+    return name
+
+
+def get_session_project(session_id: Optional[str]) -> Optional[str]:
+    if not session_id:
+        return None
+    with _db() as conn:
+        _ensure_project_table(conn)
+        row = conn.execute(
+            "SELECT project FROM session_projects WHERE session_id = ?", (session_id,)
+        ).fetchone()
+    return row[0] if row else None
+
+
 def record_handoff(session_id: str, to_agent: str, note: str = "") -> str:
     """Point ``session_id`` at ``to_agent`` and mark a handoff as pending."""
     target = normalize_agent_name(to_agent)

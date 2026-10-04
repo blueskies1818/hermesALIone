@@ -212,9 +212,15 @@ TOOLSETS = {
         "includes": []
     },
     
+    "vault": {
+        "description": "Search and browse the shared knowledge vault (projects, conversations, task results)",
+        "tools": ["vault_list_buckets", "vault_browse", "vault_search", "vault_create_bucket", "vault_reindex"],
+        "includes": []
+    },
+
     "agents": {
         "description": "List agents and hand the conversation to another agent (Theta)",
-        "tools": ["list_agents", "switch_agent"],
+        "tools": ["list_agents", "switch_agent", "set_project"],
         "includes": []
     },
     
@@ -383,8 +389,10 @@ TOOLSETS = {
             "cronjob",
             # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
             "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
-            # Agent switching (Theta)
-            "list_agents", "switch_agent",
+            # Agent switching and projects (Theta)
+            "list_agents", "switch_agent", "set_project",
+            # Shared vault (Theta)
+            "vault_list_buckets", "vault_browse", "vault_search",
         ],
         "includes": []
     },

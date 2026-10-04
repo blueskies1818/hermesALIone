@@ -89,6 +89,44 @@ def switch_agent_tool(agent: str, handoff_note: str, session_id: str) -> str:
     })
 
 
+SET_PROJECT_SCHEMA = {
+    "name": "set_project",
+    "description": (
+        "Say which project this conversation is about (e.g. 'garden app', 'tax return 2026'). "
+        "Use it when the user names a project or the topic clearly belongs to one. The "
+        "conversation, and tasks created from it, are filed under that project in the vault."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "project": {"type": "string", "description": "Short project name."},
+        },
+        "required": ["project"],
+    },
+}
+
+
+def set_project_tool(project: str, session_id: str) -> str:
+    from gateway import agent_roster as roster
+
+    if not session_id:
+        return _error("Projects can only be set inside a conversation session.")
+    if not str(project or "").strip():
+        return _error("Give the project a short name.")
+    name = roster.set_session_project(session_id, project)
+    return json.dumps({"success": True, "project": name})
+
+
+registry.register(
+    name="set_project",
+    toolset="agents",
+    schema=SET_PROJECT_SCHEMA,
+    handler=lambda args, **kw: set_project_tool(
+        project=args.get("project", ""), session_id=kw.get("task_id") or "",
+    ),
+    emoji="📁",
+)
+
 registry.register(
     name="list_agents",
     toolset="agents",
