@@ -319,7 +319,10 @@ def _is_local_error(result: str) -> bool:
         data = json.loads(result)
     except ValueError:
         return False
-    return isinstance(data, dict) and "error" in data and len(data) <= 3
+    if not isinstance(data, dict) or not data.get("error"):
+        return False
+    # An error alongside fetched output/content still carries outside text.
+    return not any(data.get(k) for k in ("output", "content", "results", "data", "text", "stdout"))
 
 
 def guard_result(tool_name: str, result: Any, args: Any = None) -> Any:
