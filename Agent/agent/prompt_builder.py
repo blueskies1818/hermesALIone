@@ -767,7 +767,13 @@ def build_environment_hints() -> str:
 
         host_lines.append(f"User home directory: {os.path.expanduser('~')}")
         try:
-            host_lines.append(f"Current working directory: {os.getcwd()}")
+            # Report the directory the tools actually run in (TERMINAL_CWD,
+            # set from config terminal.cwd), not the server process's cwd —
+            # otherwise the model writes into wherever the gateway was
+            # launched from (e.g. the repo).
+            host_lines.append(
+                f"Current working directory: {os.getenv('TERMINAL_CWD') or os.getcwd()}"
+            )
         except OSError:
             pass
 

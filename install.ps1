@@ -34,6 +34,12 @@ New-Item -ItemType Directory -Force $ThetaHome | Out-Null
 $env:HERMES_HOME = $ThetaHome
 & "$Root\Agent\.venv\Scripts\python.exe" -c "from hermes_cli.config import DEFAULT_CONFIG, save_config, get_config_path; p = get_config_path(); p.exists() or save_config(DEFAULT_CONFIG)"
 
+# Agents run terminal/file tools in a dedicated workspace, never in the repo
+# the backend happens to be started from (terminal.cwd "." would be Agent/).
+$Workspace = Join-Path $ThetaHome "workspace"
+New-Item -ItemType Directory -Force $Workspace | Out-Null
+& "$Root\Agent\.venv\Scripts\python.exe" -c "import sys; from hermes_cli.config import load_config, save_config; c = load_config(); t = c.setdefault('terminal', {}); (t.get('cwd') in (None, '', '.')) and (t.__setitem__('cwd', sys.argv[1]), save_config(c))" ($Workspace -replace '\\', '/')
+
 # Provider keys live only in $ThetaHome\.env (never in the repo).
 $EnvFile = Join-Path $ThetaHome ".env"
 if (-not (Test-Path $EnvFile)) { Copy-Item "$Root\Agent\.env.example" $EnvFile }

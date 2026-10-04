@@ -875,6 +875,17 @@ class TestEnvironmentHints:
         assert "hostname" not in result
         assert "WSL" not in result
 
+    def test_build_environment_hints_reports_terminal_cwd(self, monkeypatch, tmp_path):
+        """The prompt must name the directory tools run in, not the server's cwd."""
+        import agent.prompt_builder as _pb
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        monkeypatch.delenv("TERMINAL_ENV", raising=False)
+        monkeypatch.setenv("TERMINAL_CWD", str(workspace))
+        _pb._clear_backend_probe_cache()
+        result = _pb.build_environment_hints()
+        assert f"Current working directory: {workspace}" in result
+
     def test_build_environment_hints_on_windows_local(self, monkeypatch):
         import agent.prompt_builder as _pb
         import sys
