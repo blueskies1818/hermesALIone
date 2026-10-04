@@ -296,6 +296,22 @@ const hermesAPI = {
     return () => ipcRenderer.removeListener("chat-tts-audio", handler);
   },
 
+  // Theta: live session events (agent speaking up on its own)
+  subscribeSessionEvents: (sessionId: string, voice: boolean): Promise<boolean> =>
+    ipcRenderer.invoke("subscribe-session-events", sessionId, voice),
+  unsubscribeSessionEvents: (): Promise<void> =>
+    ipcRenderer.invoke("unsubscribe-session-events"),
+  onSessionEvent: (
+    callback: (event: { event: string; data: Record<string, unknown> }) => void,
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: { event: string; data: Record<string, unknown> },
+    ): void => callback(payload);
+    ipcRenderer.on("session-event", handler);
+    return () => ipcRenderer.removeListener("session-event", handler);
+  },
+
   // Gateway
   startGateway: (): Promise<boolean> => ipcRenderer.invoke("start-gateway"),
   stopGateway: (): Promise<boolean> => ipcRenderer.invoke("stop-gateway"),

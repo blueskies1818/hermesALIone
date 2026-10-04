@@ -127,3 +127,29 @@ export function parseSseBlock(
   if (!dataLine) return null;
   return { eventType, data: dataLine };
 }
+
+export interface SessionEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Parse one block from GET /v1/sessions/{id}/events (Theta): an `event:`
+ * line plus a JSON object `data:` line. Comments (keepalives) and
+ * malformed blocks return null.
+ */
+export function parseSessionEventBlock(block: string): SessionEvent | null {
+  let event = "";
+  let data = "";
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event: ")) event = line.slice(7).trim();
+    else if (line.startsWith("data: ")) data = line.slice(6);
+  }
+  if (!event || !data) return null;
+  try {
+    const parsed = JSON.parse(data);
+    return parsed && typeof parsed === "object" ? { event, data: parsed } : null;
+  } catch {
+    return null;
+  }
+}

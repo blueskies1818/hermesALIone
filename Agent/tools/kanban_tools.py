@@ -705,6 +705,11 @@ def _handle_create(args: dict, **kw) -> str:
     # ACP (which sets HERMES_SESSION_ID before invoking tools). NULL on
     # CLI / dashboard paths and on legacy hosts that don't set the env.
     session_id = args.get("session_id") or os.environ.get("HERMES_SESSION_ID")
+    if not session_id and not os.environ.get("HERMES_KANBAN_TASK"):
+        # Theta: in-process chat agents (API server) get the chat session id
+        # as ``task_id``; stamp it so the worker's outcome can be reported
+        # back to that conversation (gateway/session_inbox.py).
+        session_id = kw.get("task_id") or None
     priority = args.get("priority")
     workspace_kind = args.get("workspace_kind")
     workspace_path = args.get("workspace_path")

@@ -3,6 +3,7 @@ import {
   processCustomEvent,
   processSseData,
   parseSseBlock,
+  parseSessionEventBlock,
 } from "../src/main/sse-parser";
 
 // ─── parseSseBlock ──────────────────────────────────────
@@ -242,5 +243,27 @@ describe("processSseData", () => {
     const data = JSON.stringify({ id: "chatcmpl-123" });
     processSseData(data, { onChunk }, state);
     expect(onChunk).not.toHaveBeenCalled();
+  });
+});
+
+// ─── parseSessionEventBlock (Theta session events) ─────
+
+describe("parseSessionEventBlock", () => {
+  it("parses an event with JSON data", () => {
+    const block = 'event: theta.turn.end\ndata: {"turnId":"turn-1","text":"Done."}';
+    expect(parseSessionEventBlock(block)).toEqual({
+      event: "theta.turn.end",
+      data: { turnId: "turn-1", text: "Done." },
+    });
+  });
+
+  it("ignores keepalive comments and data without an event name", () => {
+    expect(parseSessionEventBlock(": keepalive")).toBeNull();
+    expect(parseSessionEventBlock('data: {"x":1}')).toBeNull();
+  });
+
+  it("ignores malformed or non-object data", () => {
+    expect(parseSessionEventBlock("event: theta.delta\ndata: {not json")).toBeNull();
+    expect(parseSessionEventBlock('event: theta.delta\ndata: "text"')).toBeNull();
   });
 });

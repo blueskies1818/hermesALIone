@@ -275,7 +275,11 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
 
   useEffect(() => {
     const cleanupDone = window.hermesAPI.onChatDone((sessionId) => {
-      if (sessionId) sessionIdRef.current = sessionId;
+      if (sessionId && sessionId !== sessionIdRef.current) {
+        sessionIdRef.current = sessionId;
+        // Theta: listen for the agent speaking up on its own (worker updates).
+        window.hermesAPI.subscribeSessionEvents(sessionId, true).catch(() => {});
+      }
       onAgentDone();
     });
     const cleanupError = window.hermesAPI.onChatError((error: string) => {
@@ -295,6 +299,7 @@ function Assistant({ profile = "default" }: AssistantProps): React.JSX.Element {
     return () => {
       cancelAnimationFrame(rafRef.current);
       audioCtxRef.current?.close();
+      window.hermesAPI.unsubscribeSessionEvents().catch(() => {});
     };
   }, []);
 

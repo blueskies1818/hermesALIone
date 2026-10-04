@@ -237,6 +237,11 @@ interface HermesAPI {
   ) => () => void;
   onChatError: (callback: (error: string) => void) => () => void;
   onTtsAudio: (callback: (base64Chunk: string) => void) => () => void;
+  subscribeSessionEvents: (sessionId: string, voice: boolean) => Promise<boolean>;
+  unsubscribeSessionEvents: () => Promise<void>;
+  onSessionEvent: (
+    callback: (event: { event: string; data: Record<string, unknown> }) => void,
+  ) => () => void;
 
   // Gateway
   startGateway: () => Promise<boolean>;

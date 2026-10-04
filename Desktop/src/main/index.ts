@@ -48,6 +48,10 @@ import {
   apiFetch,
 } from "./hermes";
 import {
+  subscribeSessionEvents,
+  unsubscribeSessionEvents,
+} from "./session-events";
+import {
   startSshTunnel,
   stopSshTunnel,
   testSshConnection,
@@ -837,6 +841,19 @@ function setupIPC(): void {
       currentChatAbort();
       currentChatAbort = null;
     }
+  });
+
+  // Theta: live session events (agent speaking up on its own)
+  ipcMain.handle(
+    "subscribe-session-events",
+    (event, sessionId: string, voice: boolean) => {
+      if (typeof sessionId !== "string" || !sessionId) return false;
+      subscribeSessionEvents(event.sender, sessionId, Boolean(voice));
+      return true;
+    },
+  );
+  ipcMain.handle("unsubscribe-session-events", () => {
+    unsubscribeSessionEvents();
   });
 
   ipcMain.handle("send-audio", async (_event, base64Audio: string) => {

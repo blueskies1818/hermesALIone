@@ -332,6 +332,106 @@ export function useVoiceMode(
   );
 
   // ------------------------------------------------------------------
+  // Proactive turns (Theta): the agent speaking up on its own, e.g. the
+  // voice agent reporting that the worker finished or has a question.
+  // A turn is collected in full, then presented only when the user isn't
+  // mid-exchange (idle or just listening); otherwise it waits its turn.
+  // ------------------------------------------------------------------
+
+  interface ProactiveTurn {
+    text: string;
+    audio: string[];
+  }
+  const buildingTurnsRef = useRef<Map<string, ProactiveTurn>>(new Map());
+  const readyTurnsRef = useRef<ProactiveTurn[]>([]);
+  const presentingRef = useRef(false);
+
+  const presentNextTurn = useCallback(() => {
+    if (presentingRef.current) return;
+    const state = sessionRef.current;
+    if (state !== "idle" && state !== "listening" && state !== "error") return;
+    const turn = readyTurnsRef.current.shift();
+    if (!turn) return;
+    presentingRef.current = true;
+
+    // Stop listening so the mic doesn't transcribe the agent's own voice;
+    // the screen restarts listening once we're back to idle.
+    stopVadInternal();
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+
+    if (turn.text) {
+      setMessages((prev) => [
+        ...prev,
+        { id: `agent-proactive-${Date.now()}`, role: "agent", content: turn.text },
+      ]);
+    }
+
+    const finish = (): void => {
+      presentingRef.current = false;
+      speakingRef.current = false;
+      setVoiceState("idle");
+      // Present anything else that queued up meanwhile.
+      setTimeout(() => presentNextTurnRef.current(), 0);
+    };
+
+    const playback = playbackRef.current;
+    if (!playback || turn.audio.length === 0) {
+      finish();
+      return;
+    }
+    setVoiceState("speaking");
+    speakingRef.current = true;
+    for (const chunk of turn.audio) {
+      playback.enqueue(chunk).catch((err) => dispatchTts({ lastError: String(err) }));
+    }
+    const started = Date.now();
+    const poll = setInterval(() => {
+      // Done when playback drained (or a safety timeout for stuck audio).
+      if (playback.state !== "playing" || Date.now() - started > 120000) {
+        clearInterval(poll);
+        finish();
+      }
+    }, 200);
+  }, [setVoiceState, stopVadInternal]);
+
+  const presentNextTurnRef = useRef(presentNextTurn);
+  useEffect(() => {
+    presentNextTurnRef.current = presentNextTurn;
+  }, [presentNextTurn]);
+
+  // Retry queued turns whenever the conversation becomes free.
+  useEffect(() => {
+    if (session.state === "idle" || session.state === "listening") {
+      presentNextTurn();
+    }
+  }, [session.state, presentNextTurn]);
+
+  useEffect(() => {
+    return window.hermesAPI.onSessionEvent(({ event, data }) => {
+      const turnId = String(data.turnId || "");
+      if (!turnId) return;
+      const building = buildingTurnsRef.current;
+      if (event === "theta.turn.start") {
+        building.set(turnId, { text: "", audio: [] });
+      } else if (event === "theta.delta") {
+        const turn = building.get(turnId);
+        if (turn) turn.text += String(data.text || "");
+      } else if (event === "hermes.tts.audio") {
+        const turn = building.get(turnId);
+        if (turn && typeof data.audio === "string") turn.audio.push(data.audio);
+      } else if (event === "theta.turn.end") {
+        const turn = building.get(turnId) || { text: "", audio: [] };
+        building.delete(turnId);
+        const finalText = String(data.text || "").trim();
+        if (finalText) turn.text = finalText;
+        readyTurnsRef.current.push(turn);
+        presentNextTurnRef.current();
+      }
+    });
+  }, []);
+
+  // ------------------------------------------------------------------
   // Public actions
   // ------------------------------------------------------------------
 

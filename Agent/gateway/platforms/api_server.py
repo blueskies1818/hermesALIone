@@ -26,6 +26,7 @@ Requires:
 """
 
 import asyncio
+import threading
 import hashlib
 import hmac
 import json
@@ -661,6 +662,13 @@ class APIServerAdapter(BasePlatformAdapter):
         self._run_streams: Dict[str, "asyncio.Queue[Optional[Dict]]"] = {}
         # Creation timestamps for orphaned-run TTL sweep
         self._run_streams_created: Dict[str, float] = {}
+        # Theta session inbox: sessions with an agent turn in progress, live
+        # listeners per session (GET /v1/sessions/{id}/events), and sessions
+        # currently getting a proactive update turn.
+        self._busy_sessions: set = set()
+        self._busy_lock = threading.Lock()
+        self._session_listeners: Dict[str, set] = {}
+        self._delivering_sessions: set = set()
         # Active run agent/task references for stop support
         self._active_run_agents: Dict[str, Any] = {}
         self._active_run_tasks: Dict[str, "asyncio.Task"] = {}
@@ -951,6 +959,176 @@ class APIServerAdapter(BasePlatformAdapter):
             "args": list(runtime.get("args") or []),
             "credential_pool": runtime.get("credential_pool"),
         }
+
+    # ------------------------------------------------------------------
+    # Theta session inbox: worker updates told to the user proactively
+    # ------------------------------------------------------------------
+
+    def _publish(self, session_id: str, event: str, data: dict, voice_only: bool = False) -> None:
+        """Send an event to everyone listening to ``session_id``."""
+        for queue, wants_voice in list(self._session_listeners.get(session_id, {}).items()):
+            if voice_only and not wants_voice:
+                continue
+            queue.put_nowait((event, data))
+
+    async def _deliver_inbox(self, session_id: str) -> None:
+        """Tell the user about queued worker updates with a proactive turn.
+
+        Runs only when the app is listening to the session and no agent turn
+        is in progress; otherwise the updates stay queued and are delivered
+        after the current turn or in front of the user's next message.
+        """
+        if not session_id or session_id in self._delivering_sessions:
+            return
+        if not self._session_listeners.get(session_id):
+            return
+        from gateway import session_inbox
+
+        self._delivering_sessions.add(session_id)
+        try:
+            while self._session_listeners.get(session_id):
+                with self._busy_lock:
+                    if session_id in self._busy_sessions:
+                        return
+                items = await asyncio.to_thread(session_inbox.pending, session_id)
+                if not items:
+                    return
+                await self._run_proactive_turn(session_id, items)
+        except Exception as exc:
+            logger.warning("Session inbox delivery failed for %s: %s", session_id, exc)
+        finally:
+            self._delivering_sessions.discard(session_id)
+
+    async def _run_proactive_turn(self, session_id: str, items: list) -> None:
+        """Run the session's agent on queued updates and stream it to listeners."""
+        from gateway import session_inbox
+
+        loop = asyncio.get_running_loop()
+        turn_id = f"turn-{uuid.uuid4().hex[:12]}"
+        self._publish(session_id, "theta.turn.start", {
+            "turnId": turn_id,
+            "reason": "worker_update",
+            "tasks": [item.task_id for item in items],
+        })
+
+        def _on_delta(delta):
+            if delta:
+                loop.call_soon_threadsafe(
+                    self._publish, session_id, "theta.delta", {"turnId": turn_id, "text": delta}
+                )
+
+        history: list = []
+        db = self._ensure_session_db()
+        if db is not None:
+            history = await asyncio.to_thread(db.get_messages_as_conversation, session_id)
+        message = (
+            f"{session_inbox.render(items)}\n\n"
+            "The user has not heard about this yet. Tell them now, briefly and "
+            "naturally. If the worker asked a question, ask the user that question."
+        )
+        result, _usage = await self._run_agent(
+            user_message=message,
+            conversation_history=history,
+            session_id=session_id,
+            stream_delta_callback=_on_delta,
+            include_inbox=False,
+        )
+        await asyncio.to_thread(session_inbox.mark_delivered, [item.id for item in items])
+        text = str((result or {}).get("final_response") or "").strip()
+
+        if text and any(self._session_listeners.get(session_id, {}).values()):
+            try:
+                from tools.tts_streaming import TtsSentenceBuffer, strip_markdown, stream_tts_to_buffer
+
+                buf = TtsSentenceBuffer()
+                sentences = buf.feed(text)
+                rest = buf.flush_remaining()
+                if rest:
+                    sentences.append(rest)
+                for index, sentence in enumerate(sentences):
+                    cleaned = strip_markdown(sentence).strip()
+                    if not cleaned:
+                        continue
+                    audio_b64 = await asyncio.to_thread(stream_tts_to_buffer, cleaned)
+                    if audio_b64:
+                        self._publish(session_id, "hermes.tts.audio", {
+                            "turnId": turn_id, "audio": audio_b64, "text": cleaned, "index": index,
+                        }, voice_only=True)
+            except Exception as exc:
+                logger.warning("TTS for proactive turn failed: %s", exc)
+
+        self._publish(session_id, "theta.turn.end", {"turnId": turn_id, "text": text})
+
+    async def _inbox_watch_loop(self) -> None:
+        """Turn Kanban outcomes into session inbox items and deliver them."""
+        from gateway import session_inbox
+        from hermes_cli.kanban_db import kanban_db_path
+
+        while True:
+            try:
+                await asyncio.sleep(3)
+                sessions = set(await asyncio.to_thread(session_inbox.poll_kanban, kanban_db_path()))
+                if self._session_listeners:
+                    waiting = await asyncio.to_thread(session_inbox.sessions_with_pending)
+                    sessions |= set(self._session_listeners) & set(waiting)
+                for session_id in sessions:
+                    asyncio.ensure_future(self._deliver_inbox(session_id))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug("Session inbox watch error: %s", exc)
+
+    async def _handle_session_events(self, request: "web.Request") -> "web.StreamResponse":
+        """GET /v1/sessions/{session_id}/events — live events for a chat session.
+
+        Streams proactive turns (worker updates) as ``theta.turn.start``,
+        ``theta.delta``, ``theta.turn.end`` and, with ``?voice=1``,
+        ``hermes.tts.audio`` events.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        session_id = request.match_info["session_id"]
+        if re.search(r'[\r\n\x00]', session_id):
+            return web.json_response(
+                {"error": {"message": "Invalid session ID", "type": "invalid_request_error"}},
+                status=400,
+            )
+        wants_voice = request.query.get("voice", "").lower() in ("1", "true", "yes")
+
+        headers = {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+        origin = request.headers.get("Origin", "")
+        cors = self._cors_headers_for_origin(origin) if origin else None
+        if cors:
+            headers.update(cors)
+        response = web.StreamResponse(status=200, headers=headers)
+        await response.prepare(request)
+
+        queue: "asyncio.Queue" = asyncio.Queue()
+        self._session_listeners.setdefault(session_id, {})[queue] = wants_voice
+        try:
+            await response.write(b": connected\n\n")
+            asyncio.ensure_future(self._deliver_inbox(session_id))
+            while True:
+                try:
+                    event, data = await asyncio.wait_for(queue.get(), timeout=25.0)
+                except asyncio.TimeoutError:
+                    await response.write(b": keepalive\n\n")
+                    continue
+                await response.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode())
+        except (ConnectionResetError, asyncio.CancelledError):
+            pass
+        finally:
+            listeners = self._session_listeners.get(session_id)
+            if listeners is not None:
+                listeners.pop(queue, None)
+                if not listeners:
+                    self._session_listeners.pop(session_id, None)
+        return response
 
     # ------------------------------------------------------------------
     # HTTP Handlers
@@ -2948,6 +3126,7 @@ class APIServerAdapter(BasePlatformAdapter):
         agent_ref: Optional[list] = None,
         gateway_session_key: Optional[str] = None,
         agent_switch_callback=None,
+        include_inbox: bool = True,
     ) -> tuple:
         """
         Create an agent and run a conversation in a thread executor.
@@ -3046,7 +3225,44 @@ class APIServerAdapter(BasePlatformAdapter):
                 result["session_id"] = _eff_sid
             return result, usage
 
-        return await loop.run_in_executor(None, _run)
+        # Theta: worker updates queued for this session that nobody has
+        # heard yet go in front of the user's message, so the agent can
+        # mention them before answering.
+        inbox_ids: list = []
+        if include_inbox and session_id and isinstance(user_message, str):
+            try:
+                from gateway import session_inbox
+
+                items = session_inbox.pending(session_id)
+                if items:
+                    inbox_ids = [item.id for item in items]
+                    user_message = (
+                        f"{session_inbox.render(items)}\n\n[User message]\n{user_message}"
+                    )
+            except Exception as exc:
+                logger.warning("Session inbox read failed for %s: %s", session_id, exc)
+
+        def _run_tracked():
+            with self._busy_lock:
+                if session_id:
+                    self._busy_sessions.add(session_id)
+            try:
+                return _run()
+            finally:
+                with self._busy_lock:
+                    self._busy_sessions.discard(session_id)
+
+        try:
+            outcome = await loop.run_in_executor(None, _run_tracked)
+        finally:
+            if session_id:
+                # Anything that arrived during this turn goes out now.
+                asyncio.ensure_future(self._deliver_inbox(session_id))
+        if inbox_ids:
+            from gateway import session_inbox
+
+            session_inbox.mark_delivered(inbox_ids)
+        return outcome
 
     # ------------------------------------------------------------------
     # /v1/runs — structured event streaming
@@ -3681,14 +3897,18 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/v1/runs/{run_id}/stop", self._handle_stop_run)
             # Voice transcription endpoint
             self._app.router.add_post("/v1/transcribe", self._handle_transcribe)
+            # Theta: live per-session events (proactive worker updates)
+            self._app.router.add_get("/v1/sessions/{session_id}/events", self._handle_session_events)
             # Start background sweep to clean up orphaned (unconsumed) run streams
             sweep_task = asyncio.create_task(self._sweep_orphaned_runs())
-            try:
-                self._background_tasks.add(sweep_task)
-            except TypeError:
-                pass
-            if hasattr(sweep_task, "add_done_callback"):
-                sweep_task.add_done_callback(self._background_tasks.discard)
+            inbox_task = asyncio.create_task(self._inbox_watch_loop())
+            for _task in (sweep_task, inbox_task):
+                try:
+                    self._background_tasks.add(_task)
+                except TypeError:
+                    pass
+                if hasattr(_task, "add_done_callback"):
+                    _task.add_done_callback(self._background_tasks.discard)
 
             # Refuse to start network-accessible without authentication
             if is_network_accessible(self._host) and not self._api_key:
