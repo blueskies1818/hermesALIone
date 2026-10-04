@@ -859,9 +859,15 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_start_callback=None,
         tool_complete_callback=None,
         gateway_session_key: Optional[str] = None,
+        agent_config: Optional[dict] = None,
     ) -> Any:
         """
         Create an AIAgent instance using the gateway's runtime config.
+
+        ``agent_config`` is a Theta agent's (profile's) parsed config.yaml.
+        When given, the model and toolsets come from it instead of the
+        gateway's config; callers must also hold ``agent_roster.agent_scope``
+        so provider resolution, SOUL.md and memory follow that agent.
 
         Uses _resolve_runtime_agent_kwargs() to pick up model, api_key,
         base_url, etc. from config.yaml / env vars.  Toolsets are resolved
@@ -881,9 +887,12 @@ class APIServerAdapter(BasePlatformAdapter):
 
         runtime_kwargs = _resolve_runtime_agent_kwargs()
         reasoning_config = GatewayRunner._load_reasoning_config()
-        model = _resolve_gateway_model()
-
-        user_config = _load_gateway_config()
+        if agent_config is not None:
+            user_config = agent_config
+            model = _resolve_gateway_model(agent_config)
+        else:
+            model = _resolve_gateway_model()
+            user_config = _load_gateway_config()
         enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
 
         max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
@@ -1281,6 +1290,17 @@ class APIServerAdapter(BasePlatformAdapter):
             # side-by-side with ``tool_start_callback``/``tool_complete_callback``.
             # The structured callbacks are strictly richer (they carry the
             # tool_call id), so they own the chat-completions SSE channel.
+            def _on_agent_switch(new_agent, previous_agent):
+                """Theta: tell the client which agent is now answering."""
+                _stream_q.put(("__tool_progress__", {
+                    "tool": "switch_agent",
+                    "emoji": "🔀",
+                    "label": f"Now talking to {new_agent}",
+                    "agent": new_agent,
+                    "previousAgent": previous_agent,
+                    "status": "completed",
+                }))
+
             agent_ref = [None]
             agent_task = asyncio.ensure_future(self._run_agent(
                 user_message=user_message,
@@ -1292,6 +1312,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 tool_complete_callback=_on_tool_complete,
                 agent_ref=agent_ref,
                 gateway_session_key=gateway_session_key,
+                agent_switch_callback=_on_agent_switch,
             ))
             # Ensure SSE drain loops can terminate without relying on polling
             # agent_task.done(), which can race with queue timeout checks.
@@ -2886,6 +2907,7 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_complete_callback=None,
         agent_ref: Optional[list] = None,
         gateway_session_key: Optional[str] = None,
+        agent_switch_callback=None,
     ) -> tuple:
         """
         Create an agent and run a conversation in a thread executor.
@@ -2899,29 +2921,68 @@ class APIServerAdapter(BasePlatformAdapter):
         another thread to stop in-progress LLM calls.
         """
         loop = asyncio.get_running_loop()
+        effective_task_id = session_id or str(uuid.uuid4())
+
+        def _run_as(agent_name, message, history):
+            """Run one agent turn scoped to ``agent_name``'s profile."""
+            from gateway.agent_roster import agent_scope
+
+            with agent_scope(agent_name) as agent_config:
+                agent = self._create_agent(
+                    ephemeral_system_prompt=ephemeral_system_prompt,
+                    session_id=session_id,
+                    stream_delta_callback=stream_delta_callback,
+                    tool_progress_callback=tool_progress_callback,
+                    tool_start_callback=tool_start_callback,
+                    tool_complete_callback=tool_complete_callback,
+                    gateway_session_key=gateway_session_key,
+                    agent_config=agent_config,
+                )
+                if agent_ref is not None:
+                    agent_ref[0] = agent
+                result = agent.run_conversation(
+                    user_message=message,
+                    conversation_history=history,
+                    task_id=effective_task_id,
+                )
+            return agent, result
 
         def _run():
-            agent = self._create_agent(
-                ephemeral_system_prompt=ephemeral_system_prompt,
-                session_id=session_id,
-                stream_delta_callback=stream_delta_callback,
-                tool_progress_callback=tool_progress_callback,
-                tool_start_callback=tool_start_callback,
-                tool_complete_callback=tool_complete_callback,
-                gateway_session_key=gateway_session_key,
-            )
-            if agent_ref is not None:
-                agent_ref[0] = agent
-            effective_task_id = session_id or str(uuid.uuid4())
-            result = agent.run_conversation(
-                user_message=user_message,
-                conversation_history=conversation_history,
-                task_id=effective_task_id,
-            )
+            from gateway.agent_roster import get_session_agent, take_pending_handoff
+
+            agent_name = get_session_agent(session_id)
+            agent, result = _run_as(agent_name, user_message, conversation_history)
+            agents = [agent]
+
+            # Theta: if the agent handed the conversation to another agent,
+            # let the new agent continue in the same turn.
+            handoff = take_pending_handoff(session_id)
+            if handoff and handoff["agent"] != agent_name:
+                if agent_switch_callback is not None:
+                    agent_switch_callback(handoff["agent"], handoff["previous_agent"])
+                if stream_delta_callback is not None:
+                    stream_delta_callback("\n\n")
+                history = list(conversation_history or [])
+                history.append({"role": "user", "content": user_message})
+                if result.get("final_response"):
+                    history.append({"role": "assistant", "content": result["final_response"]})
+                handoff_message = (
+                    f"[Handoff from agent '{handoff['previous_agent']}'] "
+                    f"{handoff['note'] or 'The user asked to talk to you.'}\n"
+                    "You are now the agent talking with the user. Greet them briefly "
+                    "and continue from here."
+                )
+                agent, result = _run_as(handoff["agent"], handoff_message, history)
+                agents.append(agent)
+                result["agent"] = handoff["agent"]
+
             usage = {
-                "input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
-                "output_tokens": getattr(agent, "session_completion_tokens", 0) or 0,
-                "total_tokens": getattr(agent, "session_total_tokens", 0) or 0,
+                key: sum(getattr(a, attr, 0) or 0 for a in agents)
+                for key, attr in (
+                    ("input_tokens", "session_prompt_tokens"),
+                    ("output_tokens", "session_completion_tokens"),
+                    ("total_tokens", "session_total_tokens"),
+                )
             }
             # Include the effective session ID in the result so callers
             # (e.g. X-Hermes-Session-Id header) can track compression-

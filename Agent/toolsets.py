@@ -212,6 +212,12 @@ TOOLSETS = {
         "includes": []
     },
     
+    "agents": {
+        "description": "List agents and hand the conversation to another agent (Theta)",
+        "tools": ["list_agents", "switch_agent"],
+        "includes": []
+    },
+    
     "clarify": {
         "description": "Ask the user clarifying questions (multiple-choice or open-ended)",
         "tools": ["clarify"],
@@ -375,7 +381,8 @@ TOOLSETS = {
             "cronjob",
             # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
             "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
-
+            # Agent switching (Theta)
+            "list_agents", "switch_agent",
         ],
         "includes": []
     },

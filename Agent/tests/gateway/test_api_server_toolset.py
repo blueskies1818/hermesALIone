@@ -126,4 +126,6 @@ class TestApiServerAdapterToolset:
             mock_agent_cls.assert_called_once()
             call_kwargs = mock_agent_cls.call_args
             toolsets = call_kwargs.kwargs.get("enabled_toolsets")
-            assert sorted(toolsets) == ["terminal", "web"]
+            # "agents" (Theta agent switching) is a non-configurable platform
+            # toolset, so it is always recovered for the API server.
+            assert sorted(toolsets) == ["agents", "terminal", "web"]
