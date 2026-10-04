@@ -897,7 +897,7 @@ def handle_function_call(
 
         # Theta guard: redact known secrets from every result and mark
         # outside content (web, browser, MCP) as untrusted data.
-        return theta_guard.guard_result(function_name, result)
+        return theta_guard.guard_result(function_name, result, function_args)
 
     except Exception as e:
         error_msg = f"Error executing {function_name}: {str(e)}"

@@ -152,3 +152,21 @@ class TestLocalErrorsNotWrapped:
     def test_content_with_error_field_plus_data_is_still_wrapped(self):
         page = json.dumps({"error": None, "content": "x", "url": "u", "title": "t"})
         assert tg.guard_result("web_extract", page).startswith("<external_content")
+
+
+class TestShellNetworkFetch:
+    def test_curl_output_is_marked_external(self):
+        out = tg.guard_result("terminal", '{"output": "<html>page</html>"}',
+                              {"command": "curl -sL https://example.com"})
+        assert out.startswith('<external_content source="terminal"')
+
+    def test_python_fetch_in_execute_code_is_marked(self):
+        code = "import requests\nprint(requests.get('https://example.com').text)"
+        assert "trust=\"untrusted\"" in tg.guard_result("execute_code", "x", {"code": code})
+
+    def test_local_commands_are_not_wrapped(self):
+        assert tg.guard_result("terminal", "ok", {"command": "python test_fib.py"}) == "ok"
+
+    def test_fetch_without_literal_url_is_marked(self):
+        assert "trust=\"untrusted\"" in tg.guard_result("terminal", "x", {"command": "wget $SITE"})
+        assert tg.guard_result("terminal", "x", {"command": "echo curly"}) == "x"

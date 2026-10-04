@@ -66,6 +66,16 @@ EXTERNAL_RESULT_TOOLS = {
 }
 EXTERNAL_RESULT_PREFIXES = ("mcp_",)
 
+# Shell/code tools return outside content when they fetch from the network
+# (an agent can always `curl` a page instead of using web_extract).
+SHELL_TOOLS = {"terminal", "process", "execute_code"}
+NETWORK_FETCH_RE = re.compile(
+    r"(\b(curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm|httpie|"
+    r"requests\.(get|post|request|Session)|urllib|urlopen|httpx|aiohttp|"
+    r"git\s+clone|pip\s+download)\b|https?://)",
+    re.IGNORECASE,
+)
+
 INJECTION_PATTERNS = [
     (re.compile(r"ignore\s+(all\s+|the\s+)?(previous|prior|above|earlier)\s+(instructions|prompts|messages)", re.I),
      "asks to ignore previous instructions"),
@@ -269,8 +279,12 @@ def is_secret_file(path: str) -> bool:
 # External content
 # ---------------------------------------------------------------------------
 
-def is_external_result_tool(tool_name: str) -> bool:
-    return tool_name in EXTERNAL_RESULT_TOOLS or tool_name.startswith(EXTERNAL_RESULT_PREFIXES)
+def is_external_result_tool(tool_name: str, args: Any = None) -> bool:
+    if tool_name in EXTERNAL_RESULT_TOOLS or tool_name.startswith(EXTERNAL_RESULT_PREFIXES):
+        return True
+    if tool_name in SHELL_TOOLS and args:
+        return bool(NETWORK_FETCH_RE.search(_args_text(args)))
+    return False
 
 
 def scan_injection(text: str) -> list[str]:
@@ -308,12 +322,12 @@ def _is_local_error(result: str) -> bool:
     return isinstance(data, dict) and "error" in data and len(data) <= 3
 
 
-def guard_result(tool_name: str, result: Any) -> Any:
+def guard_result(tool_name: str, result: Any, args: Any = None) -> Any:
     """Apply redaction and external-content wrapping to a tool result."""
     if not isinstance(result, str):
         return result
     result = redact_known_secrets(result)
-    if is_external_result_tool(tool_name) and not _is_local_error(result):
+    if is_external_result_tool(tool_name, args) and not _is_local_error(result):
         result = wrap_external(tool_name, result)
     return result
 
