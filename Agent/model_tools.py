@@ -771,6 +771,15 @@ def handle_function_call(
         if function_name in _AGENT_LOOP_TOOLS:
             return json.dumps({"error": f"{function_name} must be handled by the agent loop"})
 
+        # Theta guard: never let a known secret (or, for tools that reach the
+        # outside, anything credential-shaped) leave through tool arguments.
+        from agent import theta_guard
+
+        secret_block = theta_guard.check_outgoing(function_name, function_args)
+        if secret_block is not None:
+            theta_guard.audit_block(function_name, secret_block)
+            return json.dumps({"error": secret_block}, ensure_ascii=False)
+
         # Check plugin hooks for a block directive (unless caller already
         # checked — e.g. run_agent._invoke_tool passes skip=True to
         # avoid double-firing the hook).
@@ -886,7 +895,9 @@ def handle_function_call(
         except Exception as _hook_err:
             logger.debug("transform_tool_result hook error: %s", _hook_err)
 
-        return result
+        # Theta guard: redact known secrets from every result and mark
+        # outside content (web, browser, MCP) as untrusted data.
+        return theta_guard.guard_result(function_name, result)
 
     except Exception as e:
         error_msg = f"Error executing {function_name}: {str(e)}"

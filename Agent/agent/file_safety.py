@@ -92,6 +92,17 @@ def is_write_denied(path: str) -> bool:
 
 def get_read_block_error(path: str) -> Optional[str]:
     """Return an error message when a read targets internal Hermes cache files."""
+    try:
+        from agent.theta_guard import is_secret_file
+
+        if is_secret_file(path):
+            return (
+                f"Access denied: {path} holds credentials (API keys, tokens) and "
+                "cannot be read by agents. Credentials are provided to tools "
+                "automatically when needed."
+            )
+    except Exception:
+        pass
     resolved = Path(path).expanduser().resolve()
     hermes_home = _hermes_home_path().resolve()
     blocked_dirs = [
