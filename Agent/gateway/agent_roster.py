@@ -159,12 +159,25 @@ def agent_scope(name: Optional[str]) -> Iterator[Optional[dict]]:
 
     from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 
-    home = agent_home(agent)
-    token = set_hermes_home_override(home)
+    from hermes_constants import get_default_hermes_root
+
+    # Agents inherit the root config; their own config.yaml (if any) wins.
+    config = _deep_merge(_read_config(get_default_hermes_root()), _read_config(agent_home(agent)))
+    token = set_hermes_home_override(agent_home(agent))
     try:
-        yield _read_config(home)
+        yield config
     finally:
         reset_hermes_home_override(token)
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _read_config(home: Path) -> dict:

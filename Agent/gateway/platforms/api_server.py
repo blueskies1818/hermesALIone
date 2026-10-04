@@ -885,12 +885,13 @@ class APIServerAdapter(BasePlatformAdapter):
         from gateway.run import _resolve_runtime_agent_kwargs, _resolve_gateway_model, _load_gateway_config, GatewayRunner
         from hermes_cli.tools_config import _get_platform_tools
 
-        runtime_kwargs = _resolve_runtime_agent_kwargs()
         reasoning_config = GatewayRunner._load_reasoning_config()
         if agent_config is not None:
             user_config = agent_config
             model = _resolve_gateway_model(agent_config)
+            runtime_kwargs = self._resolve_agent_runtime_kwargs(agent_config, model)
         else:
+            runtime_kwargs = _resolve_runtime_agent_kwargs()
             model = _resolve_gateway_model()
             user_config = _load_gateway_config()
         enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
@@ -921,6 +922,35 @@ class APIServerAdapter(BasePlatformAdapter):
             gateway_session_key=gateway_session_key,
         )
         return agent
+
+    @staticmethod
+    def _resolve_agent_runtime_kwargs(agent_config: dict, model: str) -> dict:
+        """Provider credentials for a Theta agent, from its merged config.
+
+        Resolved explicitly from the agent's ``model`` section so an agent
+        profile without its own config.yaml still gets the inherited
+        provider instead of whatever auto-detection picks.
+        """
+        from gateway.run import _resolve_runtime_agent_kwargs
+        from hermes_cli.runtime_provider import resolve_runtime_provider
+
+        model_cfg = agent_config.get("model")
+        if not isinstance(model_cfg, dict) or not model_cfg.get("provider"):
+            return _resolve_runtime_agent_kwargs()
+        runtime = resolve_runtime_provider(
+            requested=model_cfg["provider"],
+            explicit_base_url=model_cfg.get("base_url") or None,
+            target_model=model or None,
+        )
+        return {
+            "api_key": runtime.get("api_key"),
+            "base_url": runtime.get("base_url"),
+            "provider": runtime.get("provider"),
+            "api_mode": runtime.get("api_mode"),
+            "command": runtime.get("command"),
+            "args": list(runtime.get("args") or []),
+            "credential_pool": runtime.get("credential_pool"),
+        }
 
     # ------------------------------------------------------------------
     # HTTP Handlers
@@ -2923,8 +2953,13 @@ class APIServerAdapter(BasePlatformAdapter):
         loop = asyncio.get_running_loop()
         effective_task_id = session_id or str(uuid.uuid4())
 
-        def _run_as(agent_name, message, history):
-            """Run one agent turn scoped to ``agent_name``'s profile."""
+        def _run_as(agent_name, message, history, fresh_prompt=False):
+            """Run one agent turn scoped to ``agent_name``'s profile.
+
+            ``fresh_prompt`` rebuilds the system prompt for the new agent and
+            stores it on the session; otherwise a continuing session reuses
+            the previous agent's stored prompt (persona, memory) verbatim.
+            """
             from gateway.agent_roster import agent_scope
 
             with agent_scope(agent_name) as agent_config:
@@ -2940,6 +2975,13 @@ class APIServerAdapter(BasePlatformAdapter):
                 )
                 if agent_ref is not None:
                     agent_ref[0] = agent
+                if fresh_prompt and hasattr(agent, "_build_system_prompt"):
+                    agent._cached_system_prompt = agent._build_system_prompt(None)
+                    session_db = getattr(agent, "_session_db", None)
+                    if session_db is not None and agent.session_id:
+                        session_db.update_system_prompt(
+                            agent.session_id, agent._cached_system_prompt
+                        )
                 result = agent.run_conversation(
                     user_message=message,
                     conversation_history=history,
@@ -2972,7 +3014,9 @@ class APIServerAdapter(BasePlatformAdapter):
                     "You are now the agent talking with the user. Greet them briefly "
                     "and continue from here."
                 )
-                agent, result = _run_as(handoff["agent"], handoff_message, history)
+                agent, result = _run_as(
+                    handoff["agent"], handoff_message, history, fresh_prompt=True
+                )
                 agents.append(agent)
                 result["agent"] = handoff["agent"]
 

@@ -63,6 +63,34 @@ class TestRoster:
             assert cfg["model"]["default"] == "m-research"
         assert get_hermes_home() == before
 
+    def test_agent_without_config_inherits_root_config(self):
+        from hermes_constants import get_default_hermes_root
+
+        root_cfg = get_default_hermes_root() / "config.yaml"
+        root_cfg.write_text(
+            yaml.safe_dump({"model": {"default": "root-model", "provider": "deepseek"}}),
+            encoding="utf-8",
+        )
+        roster.agent_home("blank").mkdir(parents=True)
+
+        with roster.agent_scope("blank") as cfg:
+            assert cfg["model"] == {"default": "root-model", "provider": "deepseek"}
+
+    def test_agent_config_overrides_root_config(self):
+        from hermes_constants import get_default_hermes_root
+
+        (get_default_hermes_root() / "config.yaml").write_text(
+            yaml.safe_dump({"model": {"default": "root-model", "provider": "deepseek"},
+                            "agent": {"max_turns": 50}}),
+            encoding="utf-8",
+        )
+        _make_agent_profile("researcher", model="m-research")
+
+        with roster.agent_scope("researcher") as cfg:
+            assert cfg["model"]["default"] == "m-research"
+            assert cfg["model"]["provider"] == "custom"
+            assert cfg["agent"]["max_turns"] == 50
+
     def test_agent_scope_default_and_missing_agent_are_noops(self):
         before = get_hermes_home()
         with roster.agent_scope("default") as cfg:
@@ -105,15 +133,28 @@ class TestSwitchTools:
         assert {a["name"] for a in out["agents"]} >= {"default", "researcher"}
 
 
+class _FakeSessionDB:
+    def __init__(self):
+        self.prompts = {}
+
+    def update_system_prompt(self, session_id, prompt):
+        self.prompts[session_id] = prompt
+
+
 class _FakeAgent:
     def __init__(self, label, on_run=None):
         self.label = label
         self.on_run = on_run
+        self._session_db = _FakeSessionDB()
+        self._cached_system_prompt = None
         self.session_id = "sess-1"
         self.session_prompt_tokens = 10
         self.session_completion_tokens = 5
         self.session_total_tokens = 15
         self.calls = []
+
+    def _build_system_prompt(self, system_message=None):
+        return f"system prompt of {self.label} built in {get_hermes_home()}"
 
     def run_conversation(self, user_message, conversation_history, task_id):
         self.calls.append({
@@ -180,6 +221,11 @@ class TestApiServerHandoff:
             {"role": "assistant", "content": "reply from first"},
         ]
         assert switches == [("researcher", "default")]
+        # The new agent gets its own system prompt (persona/memory), stored
+        # on the session so later turns reuse it; the first agent's is kept.
+        assert first._cached_system_prompt is None
+        assert second._cached_system_prompt == f"system prompt of second built in {home}"
+        assert second._session_db.prompts["sess-1"] == second._cached_system_prompt
         assert result["final_response"] == "reply from second"
         assert result["agent"] == "researcher"
         assert usage["total_tokens"] == 30
