@@ -770,6 +770,20 @@ try:
 except Exception as _bootstrap_exc:
     print(f"  Warning: config validation failed: {_bootstrap_exc}", file=sys.stderr)
 
+# Theta safety policy: limit file-tool writes (write_file/patch) to
+# theta.safety.write_root. Set in the environment so Kanban workers spawned
+# by this gateway inherit it.
+try:
+    if _config_path.exists() and not os.environ.get("HERMES_WRITE_SAFE_ROOT"):
+        import yaml as _yaml
+        with open(_config_path, encoding="utf-8") as _f:
+            _theta_cfg = (_yaml.safe_load(_f) or {}).get("theta") or {}
+        _write_root = str((_theta_cfg.get("safety") or {}).get("write_root") or "").strip()
+        if _write_root:
+            os.environ["HERMES_WRITE_SAFE_ROOT"] = os.path.expanduser(_write_root)
+except Exception as _theta_exc:
+    print(f"  Warning: theta.safety config failed: {_theta_exc}", file=sys.stderr)
+
 # Warn if user has deprecated MESSAGING_CWD / TERMINAL_CWD in .env
 try:
     from hermes_cli.config import warn_deprecated_cwd_env_vars

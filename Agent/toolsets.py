@@ -260,6 +260,8 @@ TOOLSETS = {
             "kanban_heartbeat", "kanban_comment",
             "kanban_create", "kanban_link",
             "kanban_unblock",
+            # Theta: answer a worker's approval request
+            "kanban_approve",
         ],
         "includes": [],
     },

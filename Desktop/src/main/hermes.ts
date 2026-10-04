@@ -8,6 +8,7 @@ import {
   HERMES_HOME,
   HERMES_REPO,
   HERMES_PYTHON,
+  HERMES_SCRIPT,
   hermesCliArgs,
   getEnhancedPath,
 } from "./installer";
@@ -1124,6 +1125,9 @@ export async function startGateway(profile?: string): Promise<boolean> {
     HOME: homedir(),
     HERMES_HOME: HERMES_HOME,
     API_SERVER_ENABLED: "true", // Ensure API server starts with gateway
+    // Kanban workers must run this repo's backend, not whatever `hermes`
+    // happens to be first on PATH.
+    HERMES_BIN: HERMES_SCRIPT,
   };
 
   // Inject ALL profile API keys so the gateway can authenticate with any provider.

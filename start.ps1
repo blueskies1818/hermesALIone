@@ -20,6 +20,9 @@ New-Item -ItemType Directory -Force $Logs | Out-Null
 Get-ChildItem Env: | Where-Object { $_.Name -like "*_API_KEY" } | ForEach-Object {
     Remove-Item "Env:$($_.Name)"
 }
+# Kanban workers are launched via `hermes`; pin it to this repo's venv so a
+# stale PATH (e.g. another Hermes checkout) can never run different code.
+$env:HERMES_BIN = "$Root\Agent\.venv\Scripts\hermes.exe"
 # Launched from VS Code, Electron would otherwise start in plain Node mode.
 Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 

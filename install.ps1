@@ -40,6 +40,9 @@ $Workspace = Join-Path $ThetaHome "workspace"
 New-Item -ItemType Directory -Force $Workspace | Out-Null
 & "$Root\Agent\.venv\Scripts\python.exe" -c "import sys; from hermes_cli.config import load_config, save_config; c = load_config(); t = c.setdefault('terminal', {}); (t.get('cwd') in (None, '', '.')) and (t.__setitem__('cwd', sys.argv[1]), save_config(c))" ($Workspace -replace '\\', '/')
 
+# Safety policy: agents' file writes (write_file/patch) stay inside the workspace.
+& "$Root\Agent\.venv\Scripts\python.exe" -c "import sys; from hermes_cli.config import load_config, save_config; c = load_config(); s = c.setdefault('theta', {}).setdefault('safety', {}); s.get('write_root') or (s.__setitem__('write_root', sys.argv[1]), save_config(c))" ($Workspace -replace '\\', '/')
+
 # Kanban tasks get persistent folders under workspace\tasks instead of
 # scratch dirs that are deleted when the task completes.
 & "$Root\Agent\.venv\Scripts\python.exe" -c "import sys; from hermes_cli.config import load_config, save_config; c = load_config(); k = c.setdefault('kanban', {}); k.get('default_workspace_root') or (k.__setitem__('default_workspace_root', sys.argv[1]), save_config(c))" ((Join-Path $Workspace "tasks") -replace '\\', '/')

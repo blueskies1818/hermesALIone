@@ -1042,6 +1042,27 @@ def _format_tirith_description(tirith_result: dict) -> str:
 
 def check_all_command_guards(command: str, env_type: str,
                              approval_callback=None) -> dict:
+    """Run all pre-exec security checks; audit every decision (Theta)."""
+    result = _check_all_command_guards(command, env_type, approval_callback)
+    try:
+        from tools.theta_approvals import audit
+
+        audit(
+            "command_check",
+            command=command[:1000],
+            env=env_type,
+            approved=bool(result.get("approved")),
+            description=result.get("description"),
+            user_approved=bool(result.get("user_approved")),
+            blocked_message=None if result.get("approved") else str(result.get("message") or "")[:300],
+        )
+    except Exception:
+        pass
+    return result
+
+
+def _check_all_command_guards(command: str, env_type: str,
+                              approval_callback=None) -> dict:
     """Run all pre-exec security checks and return a single approval decision.
 
     Gathers findings from tirith and dangerous-command detection, then
@@ -1085,7 +1106,9 @@ def check_all_command_guards(command: str, env_type: str,
 
     # Preserve the existing non-interactive behavior: outside CLI/gateway/ask
     # flows, we do not block on approvals and we skip external guard work.
-    if not is_cli and not is_gateway and not is_ask:
+    # Theta: Kanban workers always get checked (their requests go to the user).
+    is_kanban_worker = bool(os.environ.get("HERMES_KANBAN_TASK"))
+    if not is_cli and not is_gateway and not is_ask and not is_kanban_worker:
         # Cron sessions: respect cron_mode config
         if env_var_enabled("HERMES_CRON_SESSION"):
             if _get_cron_approval_mode() == "deny":
@@ -1178,6 +1201,27 @@ def check_all_command_guards(command: str, env_type: str,
     primary_key = warnings[0][0]
     all_keys = [key for key, _, _ in warnings]
     has_tirith = any(is_t for _, _, is_t in warnings)
+
+    # Theta: unattended Kanban workers have nobody at a prompt. Route the
+    # request to the user through the task (blocked -> session inbox ->
+    # orchestrating agent -> kanban_approve) instead of stalling.
+    kanban_task = os.environ.get("HERMES_KANBAN_TASK", "")
+    if kanban_task:
+        with _lock:
+            has_notify = session_key in _gateway_notify_cbs
+        if not has_notify:
+            from tools import theta_approvals
+
+            if theta_approvals.is_approved_for_task(kanban_task, all_keys):
+                return {"approved": True, "message": None,
+                        "user_approved": True, "description": combined_desc}
+            theta_approvals.request_approval(kanban_task, command, combined_desc, all_keys)
+            return {
+                "approved": False,
+                "pattern_key": primary_key,
+                "description": combined_desc,
+                "message": theta_approvals.worker_block_message(combined_desc, command),
+            }
 
     # Gateway/async approval — block the agent thread until the user
     # responds with /approve or /deny, mirroring the CLI's synchronous

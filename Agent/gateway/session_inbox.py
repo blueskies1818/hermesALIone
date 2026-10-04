@@ -112,6 +112,13 @@ def format_update(
         return f"{text}\n{deliverables}" if deliverables else text
     if kind == "blocked":
         reason = str(payload.get("reason") or "").strip() or "No reason given."
+        if reason.startswith("Approval needed:"):
+            return (
+                f"Task '{title}' ({task_id}) is paused: the worker wants to run something "
+                f"that needs the user's permission. {reason} "
+                "Ask the user a clear yes/no question in plain words, then record their "
+                f"answer with kanban_approve (task_id {task_id}, approve true or false)."
+            )
         return (
             f"Task '{title}' ({task_id}) is blocked and the worker needs input: {reason} "
             "Ask the user, then pass their answer back with kanban_comment and "
