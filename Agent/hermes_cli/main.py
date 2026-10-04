@@ -6706,6 +6706,9 @@ def _update_via_zip(args):
     Used on Windows when git file I/O is broken (antivirus, NTFS filter
     drivers causing 'Invalid argument' errors on file creation).
     """
+    # Theta: this would overwrite the repo with upstream Hermes. Never run it.
+    print(_THETA_UPDATE_MESSAGE)
+    sys.exit(1)
     import tempfile
     import zipfile
     from urllib.request import urlretrieve
@@ -8341,6 +8344,14 @@ def _run_pre_update_backup(args) -> None:
     print()
 
 
+_THETA_UPDATE_MESSAGE = (
+    "Theta: self-update is disabled. This backend is part of the Theta repo "
+    "(hermesALIone/Agent); the upstream updater would replace it with upstream "
+    "Hermes code. Update with git in the repo instead (git pull on the theta "
+    "branch), then re-run install.ps1."
+)
+
+
 def cmd_update(args):
     """Update Hermes Agent to the latest version.
 
@@ -8348,6 +8359,13 @@ def cmd_update(args):
     runs the update, then restores stdio on the way out (even on
     ``sys.exit`` or unhandled exceptions).
     """
+    # Theta: never self-update (git pull/reset or ZIP overwrite of the repo).
+    if getattr(args, "check", False):
+        print("Theta: update checks are disabled; use git in the Theta repo.")
+        return
+    print(_THETA_UPDATE_MESSAGE)
+    sys.exit(1)
+
     from hermes_cli.config import is_managed, managed_error
 
     if is_managed():
