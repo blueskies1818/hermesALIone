@@ -22,6 +22,12 @@ from typing import Optional
 # Kanban event kinds worth telling the user about, and how to phrase them.
 NOTIFY_KINDS = ("completed", "blocked", "gave_up", "timed_out")
 
+# Small text deliverables are included in the completion message so a
+# tool-less agent (e.g. the voice agent) can read them to the user.
+TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".py", ".js", ".ts", ".html", ".css", ".yaml", ".yml"}
+MAX_INLINE_CHARS = 2000
+MAX_LISTED_FILES = 20
+
 
 @dataclass
 class InboxItem:
@@ -60,12 +66,50 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
     )
 
 
-def format_update(kind: str, task_id: str, title: str, payload: dict) -> str:
+def describe_deliverables(workspace_path: Optional[str]) -> str:
+    """List files the worker left in its workspace; inline small text ones."""
+    from pathlib import Path
+
+    if not workspace_path:
+        return ""
+    root = Path(workspace_path)
+    if not root.is_dir():
+        return ""
+    files = sorted(
+        p for p in root.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts and not p.name.startswith(".")
+    )
+    if not files:
+        return ""
+    lines = [f"Files in {root}:"]
+    lines += [f"  {p.relative_to(root).as_posix()}" for p in files[:MAX_LISTED_FILES]]
+    if len(files) > MAX_LISTED_FILES:
+        lines.append(f"  ... and {len(files) - MAX_LISTED_FILES} more")
+    budget = MAX_INLINE_CHARS
+    for p in files:
+        if p.suffix.lower() not in TEXT_SUFFIXES or budget <= 0:
+            continue
+        try:
+            content = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if len(content) > budget:
+            continue
+        budget -= len(content)
+        lines.append(f"Content of {p.relative_to(root).as_posix()}:\n{content.strip()}")
+    return "\n".join(lines)
+
+
+def format_update(
+    kind: str, task_id: str, title: str, payload: dict, workspace_path: Optional[str] = None,
+) -> str:
     """Message handed to the session's agent for one Kanban outcome."""
     title = title or task_id
     if kind == "completed":
         summary = str(payload.get("summary") or "").strip() or "No summary given."
-        return f"Task '{title}' ({task_id}) is done. Worker summary: {summary}"
+        text = f"Task '{title}' ({task_id}) is done. Worker summary: {summary}"
+        deliverables = describe_deliverables(workspace_path)
+        return f"{text}\n{deliverables}" if deliverables else text
     if kind == "blocked":
         reason = str(payload.get("reason") or "").strip() or "No reason given."
         return (
@@ -112,7 +156,7 @@ def poll_kanban(kanban_db_path) -> list[str]:
             return []
         placeholders = ",".join("?" for _ in NOTIFY_KINDS)
         events = kconn.execute(
-            "SELECT e.id, e.task_id, e.kind, e.payload, t.title, t.session_id"
+            "SELECT e.id, e.task_id, e.kind, e.payload, t.title, t.session_id, t.workspace_path"
             " FROM task_events e JOIN tasks t ON t.id = e.task_id"
             f" WHERE e.id > ? AND e.kind IN ({placeholders})"
             " ORDER BY e.id",
@@ -124,7 +168,7 @@ def poll_kanban(kanban_db_path) -> list[str]:
 
     sessions: list[str] = []
     with _db() as conn:
-        for _eid, task_id, kind, payload, title, session_id in events:
+        for _eid, task_id, kind, payload, title, session_id, workspace_path in events:
             if not session_id:
                 continue
             try:
@@ -134,7 +178,11 @@ def poll_kanban(kanban_db_path) -> list[str]:
             conn.execute(
                 "INSERT INTO session_inbox (session_id, task_id, kind, text, created_at)"
                 " VALUES (?, ?, ?, ?, ?)",
-                (session_id, task_id, kind, format_update(kind, task_id, title, data), time.time()),
+                (
+                    session_id, task_id, kind,
+                    format_update(kind, task_id, title, data, workspace_path),
+                    time.time(),
+                ),
             )
             if session_id not in sessions:
                 sessions.append(session_id)

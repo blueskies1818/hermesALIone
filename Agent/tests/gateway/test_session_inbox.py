@@ -13,7 +13,7 @@ from gateway.platforms.api_server import APIServerAdapter
 
 def _kanban_db(path):
     conn = sqlite3.connect(path)
-    conn.execute("CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT, session_id TEXT)")
+    conn.execute("CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT, session_id TEXT, workspace_path TEXT)")
     conn.execute(
         "CREATE TABLE task_events (id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " task_id TEXT, run_id INTEGER, kind TEXT, payload TEXT, created_at INTEGER)"
@@ -48,8 +48,8 @@ class TestPollKanban:
     def test_first_poll_skips_history_then_queues_new_outcomes(self, tmp_path):
         path = tmp_path / "kanban.db"
         conn = _kanban_db(path)
-        conn.execute("INSERT INTO tasks VALUES ('t_1', 'Write primes', 'sess-1')")
-        conn.execute("INSERT INTO tasks VALUES ('t_2', 'Orphan', NULL)")
+        conn.execute("INSERT INTO tasks (id, title, session_id) VALUES ('t_1', 'Write primes', 'sess-1')")
+        conn.execute("INSERT INTO tasks (id, title, session_id) VALUES ('t_2', 'Orphan', NULL)")
         conn.commit()
         _event(conn, "t_1", "completed", {"summary": "old"})
 
@@ -74,7 +74,7 @@ class TestPollKanban:
     def test_mark_delivered(self, tmp_path):
         path = tmp_path / "kanban.db"
         conn = _kanban_db(path)
-        conn.execute("INSERT INTO tasks VALUES ('t_1', 'x', 'sess-1')")
+        conn.execute("INSERT INTO tasks (id, title, session_id) VALUES ('t_1', 'x', 'sess-1')")
         conn.commit()
         inbox.poll_kanban(path)
         _event(conn, "t_1", "completed", {"summary": "ok"})
@@ -89,7 +89,7 @@ class TestPollKanban:
 def _queue_item(tmp_path, session_id="sess-1", summary="Printed primes"):
     path = tmp_path / "kanban.db"
     conn = _kanban_db(path)
-    conn.execute("INSERT INTO tasks VALUES ('t_1', 'Write primes', ?)", (session_id,))
+    conn.execute("INSERT INTO tasks (id, title, session_id) VALUES ('t_1', 'Write primes', ?)", (session_id,))
     conn.commit()
     inbox.poll_kanban(path)
     _event(conn, "t_1", "completed", {"summary": summary})
@@ -180,3 +180,45 @@ class TestApiServerDelivery:
         asyncio.run(adapter._deliver_inbox("sess-1"))
         assert agents == []
         assert len(inbox.pending("sess-1")) == 1
+
+
+class TestDeliverables:
+    def test_lists_files_and_inlines_small_text(self, tmp_path):
+        (tmp_path / "paragraph.txt").write_text("The Revolution began in 1775.", encoding="utf-8")
+        (tmp_path / "image.png").write_bytes(b"\x89PNG")
+        (tmp_path / "__pycache__").mkdir()
+        (tmp_path / "__pycache__" / "x.pyc").write_bytes(b"0")
+
+        text = inbox.describe_deliverables(str(tmp_path))
+
+        assert "paragraph.txt" in text and "image.png" in text
+        assert "x.pyc" not in text
+        assert "Content of paragraph.txt:\nThe Revolution began in 1775." in text
+
+    def test_large_text_is_listed_not_inlined(self, tmp_path):
+        (tmp_path / "big.txt").write_text("x" * (inbox.MAX_INLINE_CHARS + 1), encoding="utf-8")
+        text = inbox.describe_deliverables(str(tmp_path))
+        assert "big.txt" in text and "Content of" not in text
+
+    def test_missing_or_empty_workspace(self, tmp_path):
+        assert inbox.describe_deliverables(None) == ""
+        assert inbox.describe_deliverables(str(tmp_path / "nope")) == ""
+        assert inbox.describe_deliverables(str(tmp_path)) == ""
+
+    def test_completed_update_includes_deliverables(self, tmp_path):
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / "result.md").write_text("# Result\nAll done.", encoding="utf-8")
+        path = tmp_path / "kanban.db"
+        conn = _kanban_db(path)
+        conn.execute(
+            "INSERT INTO tasks (id, title, session_id, workspace_path) VALUES ('t_1', 'Write', 's', ?)",
+            (str(ws),),
+        )
+        conn.commit()
+        inbox.poll_kanban(path)
+        _event(conn, "t_1", "completed", {"summary": "Wrote it."})
+        inbox.poll_kanban(path)
+
+        text = inbox.pending("s")[0].text
+        assert "Wrote it." in text and "Content of result.md:\n# Result\nAll done." in text
