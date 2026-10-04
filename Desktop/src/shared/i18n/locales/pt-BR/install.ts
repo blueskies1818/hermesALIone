@@ -3,7 +3,7 @@ export default {
   startingInstall: "Iniciando instalação",
   installationComplete: "Instalação Concluída",
   installationFailed: "Falha na Instalação",
-  installingHermes: "Instalando Hermes Agent",
+  installingHermes: "Instalando Theta Agent",
   installationFailedHint:
     "A instalação falhou. Por favor, tente novamente ou instale via terminal.",
   retryInstallation: "Tentar Instalação Novamente",

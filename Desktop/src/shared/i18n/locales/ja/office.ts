@@ -24,7 +24,7 @@ export default {
   startingClaw3dService: "Claw3D サービスを起動中...",
   clickToStart: "「開始」をクリックして Claw3D を実行",
   setupDesc1:
-    "Claw3D は Hermes エージェント用の 3D 可視化環境です。インタラクティブなオフィス空間でエージェントの動きが見られます。",
+    "Claw3D は Theta エージェント用の 3D 可視化環境です。インタラクティブなオフィス空間でエージェントの動きが見られます。",
   setupDesc2:
     "下のボタンで Claw3D を自動ダウンロード・セットアップします。リポジトリをクローンし、依存関係をすべてインストールします。",
 } as const;

@@ -83,7 +83,6 @@ describe("New IPC handlers from v0.8/v0.9 features", () => {
 describe("Legacy IPC handlers preserved", () => {
   const legacyChannels = [
     "check-install",
-    "start-install",
     "get-hermes-version",
     "run-hermes-doctor",
     "run-hermes-update",

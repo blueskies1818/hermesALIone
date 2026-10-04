@@ -100,7 +100,6 @@ describe("Legacy APIs preserved (backward compat)", () => {
   const requiredMethods = [
     // Installation
     "checkInstall",
-    "startInstall",
     "onInstallProgress",
     // Hermes engine
     "getHermesVersion",

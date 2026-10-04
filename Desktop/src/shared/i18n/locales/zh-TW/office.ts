@@ -23,7 +23,7 @@ export default {
   startingClaw3dService: "正在啟動 Claw3D 服務...",
   clickToStart: '點擊"啟動"來執行 Claw3D',
   setupDesc1:
-    "Claw3D 是你的 Hermes Agent 的 3D 視覺化環境。它讓你可以看到 Agent 在互動式辦公空間中工作。",
+    "Claw3D 是你的 Theta Agent 的 3D 視覺化環境。它讓你可以看到 Agent 在互動式辦公空間中工作。",
   setupDesc2:
     "點擊下方自動下載並設定 Claw3D。這將複製儲存庫並安裝所有相依套件。",
 } as const;

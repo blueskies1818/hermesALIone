@@ -3,7 +3,7 @@ export default {
   startingInstall: "開始安裝",
   installationComplete: "安裝完成",
   installationFailed: "安裝失敗",
-  installingHermes: "正在安裝 Hermes Agent",
+  installingHermes: "正在安裝 Theta Agent",
   installationFailedHint: "安裝失敗，請重試或改用終端機安裝。",
   retryInstallation: "重新安裝",
   copied: "已複製！",

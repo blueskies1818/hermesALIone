@@ -14,7 +14,7 @@ import Vault from "../Vault/Vault";
 import Config from "../Config/Config";
 import Plugins from "../Plugins/Plugins";
 import { useTheme } from "../../components/ThemeProvider";
-import hermeslogo from "../../assets/hermes.png";
+import thetaWordmark from "../../assets/theta-wordmark.png";
 import {
   ChatBubble,
   Clock,
@@ -223,7 +223,7 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <img src={hermeslogo} height={30} alt="" />
+          <img src={thetaWordmark} height={30} alt="Theta R&D" className="brand-logo brand-logo--match-theme" />
         </div>
 
         <nav className="sidebar-nav">

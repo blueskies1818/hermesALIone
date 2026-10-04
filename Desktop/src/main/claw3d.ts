@@ -276,7 +276,7 @@ function writeClaw3dSettings(wsUrl?: string): void {
       const envPath = join(HERMES_OFFICE_DIR, ".env");
       const port = getSavedPort();
       const envContent = [
-        "# Auto-configured by Hermes Desktop",
+        "# Auto-configured by Theta Desktop",
         `PORT=${port}`,
         `HOST=127.0.0.1`,
         `NEXT_PUBLIC_GATEWAY_URL=${url}`,
@@ -284,7 +284,7 @@ function writeClaw3dSettings(wsUrl?: string): void {
         `CLAW3D_GATEWAY_TOKEN=`,
         `HERMES_ADAPTER_PORT=18789`,
         `HERMES_MODEL=hermes`,
-        `HERMES_AGENT_NAME=Hermes`,
+        `HERMES_AGENT_NAME=Theta`,
         "",
       ].join("\n");
       safeWriteFile(envPath, envContent);
@@ -812,7 +812,7 @@ export function startAdapter(): boolean {
 
   proc.on("close", (code) => {
     if (code && code !== 0 && !adapterError) {
-      adapterError = `Hermes adapter exited with code ${code}`;
+      adapterError = `Theta adapter exited with code ${code}`;
     }
     adapterProcess = null;
     cleanupPid(ADAPTER_PID_FILE);
@@ -865,7 +865,7 @@ export function startAll(): { success: boolean; error?: string } {
   // Start adapter
   const adapterOk = startAdapter();
   if (!adapterOk) {
-    return { success: false, error: "Failed to start Hermes adapter" };
+    return { success: false, error: "Failed to start Theta adapter" };
   }
 
   return { success: true };

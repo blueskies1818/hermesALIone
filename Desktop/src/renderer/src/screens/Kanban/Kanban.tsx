@@ -433,7 +433,7 @@ function Kanban({ profile, visible }: KanbanProps): React.JSX.Element {
       <div className="kanban-container">
         <div className="kanban-empty">
           <p className="schedules-empty-text">
-            Kanban requires a local Hermes install or SSH tunnel mode.
+            Kanban requires a local Theta install or SSH tunnel mode.
           </p>
           <p className="schedules-empty-hint">
             Plain remote (HTTP + API key) mode does not yet expose the kanban

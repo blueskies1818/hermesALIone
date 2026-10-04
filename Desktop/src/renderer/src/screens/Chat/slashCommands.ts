@@ -93,7 +93,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
   {
     name: "/update",
-    description: "Update Hermes to the latest version",
+    description: "Update Theta to the latest version",
     category: "agent",
   },
   // Tools & capabilities
@@ -133,5 +133,5 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
   { name: "/memory", description: "Show agent memory", category: "info" },
   { name: "/persona", description: "Show current persona", category: "info" },
-  { name: "/version", description: "Show Hermes version", category: "info" },
+  { name: "/version", description: "Show Theta version", category: "info" },
 ];

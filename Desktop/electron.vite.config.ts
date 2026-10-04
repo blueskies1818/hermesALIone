@@ -16,7 +16,6 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve("src/preload/index.ts"),
-          askpass: resolve("src/preload/askpass.ts"),
         },
       },
     },

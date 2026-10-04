@@ -57,16 +57,6 @@ describe("Electron main process hardening", () => {
     );
     expect(installerSrc).not.toContain("execSync(`");
   });
-
-  it("keeps the Linux sudo precache install flow wired in", () => {
-    expect(installerSrc).toContain(
-      'import { precacheSudoCredentials } from "./sudoCreds"',
-    );
-    expect(installerSrc).toContain(
-      "const sudoPrecache = await precacheSudoCredentials(",
-    );
-    expect(installerSrc).toContain("sudoPrecache.stop();");
-  });
 });
 
 describe("Electron external URL policy", () => {

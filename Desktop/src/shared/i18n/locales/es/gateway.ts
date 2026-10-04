@@ -6,5 +6,5 @@ export default {
   running: "En ejecución",
   stopped: "Detenido",
   gatewayHint:
-    "Conecta Hermes con Telegram, Discord, Slack y otras plataformas",
+    "Conecta Theta con Telegram, Discord, Slack y otras plataformas",
 } as const;

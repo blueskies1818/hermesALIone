@@ -3,7 +3,7 @@ export default {
   startingInstall: "Memulai instalasi",
   installationComplete: "Instalasi Selesai",
   installationFailed: "Instalasi Gagal",
-  installingHermes: "Menginstal Hermes Agent",
+  installingHermes: "Menginstal Theta Agent",
   installationFailedHint:
     "Instalasi gagal. Coba lagi atau instal melalui terminal.",
   retryInstallation: "Ulangi Instalasi",

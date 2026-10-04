@@ -1,98 +1,80 @@
-# ============================================================================
-# Hermes ALIone — Start script (Windows PowerShell)
-# ============================================================================
-# Run: powershell -ExecutionPolicy Bypass -File start.ps1
-# ============================================================================
+# Theta Agent - start (Windows PowerShell)
+# Starts the backend (chat API :8642, REST API :9119), then the Desktop app.
+# Closing the app stops the backend. Use -BackendOnly to run just the servers.
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+param([switch]$BackendOnly)
 
-# -- Kill any stale hermes processes (by name) so fresh code is always loaded ---
-Write-Host "Stopping any existing hermes processes..."
-Get-Process -Name "hermes" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process -Name "hermes-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+$ErrorActionPreference = "Stop"
+$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Python = "$Root\Agent\.venv\Scripts\python.exe"
+$env:HERMES_HOME = if ($env:HERMES_HOME) { $env:HERMES_HOME } else { Join-Path $env:USERPROFILE ".theta" }
+$Logs = Join-Path $env:HERMES_HOME "logs"
 
-# -- Kill any stale gateway process on port 8642 so fresh code is always loaded -
-$gatewayRunning = Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue
-if ($gatewayRunning) {
-    Write-Host "Stopping existing gateway on port 8642..."
-    $pid = $gatewayRunning.OwningProcess | Select-Object -First 1
-    if ($pid) {
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+if (-not (Test-Path $Python)) {
+    Write-Host "Backend not installed. Run install.ps1 first." -ForegroundColor Red
+    exit 1
+}
+New-Item -ItemType Directory -Force $Logs | Out-Null
+
+# Provider keys must come only from $HERMES_HOME\.env, so drop any inherited ones.
+Get-ChildItem Env: | Where-Object { $_.Name -like "*_API_KEY" } | ForEach-Object {
+    Remove-Item "Env:$($_.Name)"
+}
+# Launched from VS Code, Electron would otherwise start in plain Node mode.
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+
+# A venv python.exe is a launcher that spawns the real interpreter as a child,
+# so always stop the whole process tree.
+function Stop-Tree($procId) { taskkill /T /F /PID $procId 2>&1 | Out-Null }
+
+# Stop a previous Theta backend still holding our ports (only our own venv's python).
+foreach ($port in 8642, 9119) {
+    Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | ForEach-Object {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.OwningProcess)"
+        if ($proc.CommandLine -like "*hermes_cli.main*") {
+            Stop-Tree $proc.ProcessId
+        } else {
+            Write-Host "Port $port is used by another program ($($proc.Name)). Free it and retry." -ForegroundColor Red
+            exit 1
+        }
     }
 }
 
-Write-Host "Starting Hermes Agent gateway..."
-Push-Location "$ScriptDir\Agent"
-
-# Activate venv if present
-if (Test-Path ".venv\Scripts\Activate.ps1") {
-    . ".venv\Scripts\Activate.ps1"
+function Start-Backend($name, $cliArgs) {
+    Start-Process -FilePath $Python -ArgumentList (@("-m", "hermes_cli.main") + $cliArgs) `
+        -WorkingDirectory "$Root\Agent" -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput "$Logs\$name.log" -RedirectStandardError "$Logs\$name.err.log"
 }
 
-# Start gateway in background via Start-Job
-# API_SERVER_ENABLED must be set inside the ScriptBlock — Start-Job runs in a
-# separate runspace and does not inherit $env: variables from the parent.
-$gatewayJob = Start-Job -Name "HermesGateway" -ScriptBlock {
-    $env:API_SERVER_ENABLED = "true"
-    Set-Location $using:ScriptDir\Agent
-    hermes gateway run --replace 2>&1 | Out-Null
-}
+$env:API_SERVER_ENABLED = "true"
+$gateway = Start-Backend "gateway" @("gateway", "run", "--replace")
+$dashboard = Start-Backend "dashboard" @("dashboard", "--no-open")
 
-# Wait for gateway to become ready (up to 30s)
-Write-Host "Waiting for gateway to become ready..."
-$timeout = 30
-for ($i = 0; $i -lt $timeout; $i++) {
+Write-Host "Waiting for backend..."
+$ready = $false
+for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Seconds 1
-    $test = Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue
-    if ($test) { break }
+    $rest = Get-NetTCPConnection -LocalPort 9119 -State Listen -ErrorAction SilentlyContinue
+    $chat = Get-NetTCPConnection -LocalPort 8642 -State Listen -ErrorAction SilentlyContinue
+    if ($rest -and $chat) { $ready = $true; break }
+}
+if (-not $ready) {
+    Write-Host "Backend did not start within 60s. See logs in $Logs" -ForegroundColor Red
+    Stop-Tree $gateway.Id; Stop-Tree $dashboard.Id
+    exit 1
+}
+Write-Host "Backend ready: chat http://127.0.0.1:8642, REST http://127.0.0.1:9119 (logs: $Logs)" -ForegroundColor Green
+
+if ($BackendOnly) {
+    Write-Host "Backend running (gateway PID $($gateway.Id), dashboard PID $($dashboard.Id))."
+    exit 0
 }
 
-if (Get-NetTCPConnection -LocalPort 8642 -ErrorAction SilentlyContinue) {
-    Write-Host "Gateway is ready."
-}
-else {
-    Write-Host "Warning: Gateway may still be starting — check logs in ~\.hermes\logs\"
-}
-
-Pop-Location
-
-# -- Start Hermes dashboard (REST API on port 9119) ----------------------------
-$dashRunning = Get-NetTCPConnection -LocalPort 9119 -ErrorAction SilentlyContinue
-if ($dashRunning) {
-    Write-Host "Hermes dashboard already running on port 9119."
-}
-else {
-    Write-Host "Starting Hermes dashboard (REST API on port 9119)..."
-    Push-Location "$ScriptDir\Agent"
-    if (Test-Path ".venv\Scripts\Activate.ps1") {
-        . ".venv\Scripts\Activate.ps1"
-    }
-    $hermesLog = "$env:USERPROFILE\.hermes\logs\dashboard.log"
-    $dashJob = Start-Job -Name "HermesDashboard" -ScriptBlock {
-        Set-Location $using:ScriptDir\Agent
-        hermes dashboard --no-open --skip-build 2>&1 | Out-File -Append -Encoding utf8 $using:hermesLog
-    }
-    Write-Host "Waiting for dashboard to become ready..."
-    for ($i = 0; $i -lt 45; $i++) {
-        Start-Sleep -Seconds 1
-        if (Get-NetTCPConnection -LocalPort 9119 -ErrorAction SilentlyContinue) { break }
-    }
-    if (Get-NetTCPConnection -LocalPort 9119 -ErrorAction SilentlyContinue) {
-        Write-Host "Dashboard is ready."
-    }
-    else {
-        Write-Host ""
-        Write-Host "ERROR: Dashboard did not start on port 9119 after 45 seconds."
-        Write-Host "Check the log for details: $hermesLog"
-        Write-Host ""
-        Read-Host "Press Enter to exit"
-        exit 1
-    }
+try {
+    Push-Location "$Root\Desktop"
+    npm run dev
+} finally {
     Pop-Location
+    Write-Host "Stopping backend..."
+    Stop-Tree $gateway.Id; Stop-Tree $dashboard.Id
 }
-
-# -- Start the desktop app in dev mode -----------------------------------------
-Set-Location "$ScriptDir\Desktop"
-Write-Host "Starting Hermes Desktop..."
-npm run dev

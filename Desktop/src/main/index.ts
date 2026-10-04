@@ -18,7 +18,6 @@ import { discoverProviderModels } from "./model-discovery";
 import {
   checkInstallStatus,
   verifyInstall,
-  runInstall,
   getHermesVersion,
   clearVersionCache,
   runHermesDoctor,
@@ -46,6 +45,7 @@ import {
   restartGateway,
   ensureSshTunnelIfNeeded,
   setSshRemoteApiKey,
+  apiFetch,
 } from "./hermes";
 import {
   startSshTunnel,
@@ -374,17 +374,6 @@ function setupIPC(): void {
 
   ipcMain.handle("verify-install", () => verifyInstall());
 
-  ipcMain.handle("start-install", async (event) => {
-    try {
-      await runInstall((progress: InstallProgress) => {
-        event.sender.send("install-progress", progress);
-      }, mainWindow);
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: (err as Error).message };
-    }
-  });
-
   // Hermes engine info
   ipcMain.handle("get-hermes-version", async () => {
     const conn = getConnectionConfig();
@@ -419,7 +408,7 @@ function setupIPC(): void {
         event.sender.send("install-progress", {
           step: 1,
           totalSteps: 1,
-          title: "Updating remote Hermes Agent",
+          title: "Updating remote Theta Agent",
           detail: "Running hermes update over SSH...",
           log: "Running hermes update over SSH...\n",
         });
@@ -793,7 +782,7 @@ function setupIPC(): void {
                 .trim()
                 .slice(0, 80);
               new Notification({
-                title: "Hermes Agent",
+                title: "Theta Agent",
                 body: preview || "Response ready",
               }).show();
             }
@@ -812,7 +801,7 @@ function setupIPC(): void {
             // Notify on error too if window not focused
             if (mainWindow && !mainWindow.isFocused()) {
               new Notification({
-                title: "Hermes Agent — Error",
+                title: "Theta Agent — Error",
                 body: sanitized.slice(0, 100),
               }).show();
             }
@@ -1609,23 +1598,6 @@ function buildMenu(): void {
           : [{ role: "close" as const }]),
       ],
     },
-    {
-      label: "Help",
-      submenu: [
-        {
-          label: "Hermes Agent on GitHub",
-          click: (): void => {
-            openExternalUrl("https://github.com/NousResearch/hermes-agent/");
-          },
-        },
-        {
-          label: "Report an Issue",
-          click: (): void => {
-            openExternalUrl("https://github.com/fathah/hermes-desktop/issues");
-          },
-        },
-      ],
-    },
   ];
 
   const menu = Menu.buildFromTemplate(template);
@@ -1704,7 +1676,7 @@ function setupUpdater(): void {
 }
 
 app.whenReady().then(() => {
-  app.name = "Hermes";
+  app.name = "Theta";
   electronApp.setAppUserModelId("com.nousresearch.hermes");
 
   app.on("browser-window-created", (_, window) => {

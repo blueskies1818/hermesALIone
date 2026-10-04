@@ -113,7 +113,7 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
         <p className="connect-panel-desc">{t("connect.localDesc")}</p>
 
         <div className="connect-info-box">
-          <p>The Hermes Agent runs on this machine. Make sure the gateway is
+          <p>The Theta Agent runs on this machine. Make sure the gateway is
           running (<code>./start.sh</code> or <code>./start.bat</code>) and
           listening on port 9119. No additional setup needed.</p>
         </div>
@@ -143,7 +143,7 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
         <p className="connect-panel-desc">{t("connect.remoteDesc")}</p>
 
         <div className="connect-info-box">
-          <p>Point the desktop at a remote Hermes gateway. The remote machine
+          <p>Point the desktop at a remote Theta gateway. The remote machine
           must be running the dashboard (port 9119) and the port must be
           reachable from this machine. Set an API key if the gateway requires
           one (<code>API_SERVER_KEY</code> in <code>.env</code>). Run
@@ -199,7 +199,7 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
         <p className="connect-panel-desc">{t("connect.sshDesc")}</p>
 
         <div className="connect-info-box">
-          <p>Connect via SSH tunnel to a remote Hermes instance. First, run
+          <p>Connect via SSH tunnel to a remote Theta instance. First, run
           <code>hermes ssh-keygen</code> on this machine to generate a key. Then
           run the <code>ssh-copy-id</code> command it prints to authorize the key
           on the remote host. Run <code>hermes connect</code> for detailed field

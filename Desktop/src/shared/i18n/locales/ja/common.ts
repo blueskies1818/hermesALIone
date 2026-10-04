@@ -1,5 +1,5 @@
 export default {
-  appName: "Hermes Agent",
+  appName: "Theta Agent",
   continue: "続ける",
   cancel: "キャンセル",
   retry: "再試行",

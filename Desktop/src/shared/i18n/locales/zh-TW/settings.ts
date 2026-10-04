@@ -1,7 +1,7 @@
 export default {
   title: "設定",
   sections: {
-    hermesAgent: "Hermes Agent",
+    hermesAgent: "Theta Agent",
     appearance: "外觀",
     credentialPool: "憑證池",
   },
@@ -23,7 +23,7 @@ export default {
   },
   notDetected: "未偵測到",
   updatedSuccessfully: "更新成功！",
-  updateSuccess: "Hermes 更新成功。",
+  updateSuccess: "Theta 更新成功。",
   updateFailed: "更新失敗。",
   version: "v{{version}}",
   proxyPlaceholder: "例如：socks5://127.0.0.1:1080 或 http://proxy:8080",
@@ -40,13 +40,13 @@ export default {
   modelHint: "預設模型名(留空則使用供應商預設值)",
   customBaseUrlHint: "相容 OpenAI 的 API 位址",
   poolHint:
-    "為同一供應商新增多個 API Key，以便自動輪換和負載均衡。Hermes 會在它們之間輪流使用。",
+    "為同一供應商新增多個 API Key，以便自動輪換和負載均衡。Theta 會在它們之間輪流使用。",
   add: "新增",
   remove: "移除",
   keyLabel: "金鑰",
   empty: "(空)",
   dataSection: "資料",
-  dataHint: "匯出或匯入你的 Hermes 設定、工作階段、技能和記憶。",
+  dataHint: "匯出或匯入你的 Theta 設定、工作階段、技能和記憶。",
   backingUp: "正在備份...",
   exportBackup: "匯出備份",
   importing: "正在匯入...",
@@ -63,10 +63,10 @@ export default {
   debugDump: "偵錯傾印",
   migrationDetected: "偵測到 OpenClaw 安裝",
   migrationDesc:
-    "在 <code>{{path}}</code> 發現 OpenClaw。你可以將設定、API Key、工作階段和技能遷移到 Hermes。",
+    "在 <code>{{path}}</code> 發現 OpenClaw。你可以將設定、API Key、工作階段和技能遷移到 Theta。",
   migrationDismiss: "不再顯示",
   migrating: "遷移中...",
-  migrateToHermes: "遷移到 Hermes",
+  migrateToHermes: "遷移到 Theta",
   skip: "跳過",
   appearanceHint: "選擇你偏好的介面外觀",
   apiKeyPlaceholder: "API Key",
@@ -74,11 +74,11 @@ export default {
   connectionSection: "連線",
   modeLocal: "本機",
   modeRemote: "遠端",
-  modeLocalHint: "使用本機安裝的 Hermes",
-  modeRemoteHint: "連線到網路或雲伺服器上的 Hermes API",
+  modeLocalHint: "使用本機安裝的 Theta",
+  modeRemoteHint: "連線到網路或雲伺服器上的 Theta API",
   remoteUrl: "遠端伺服器位址",
   remoteUrlHint:
-    "Hermes API 伺服器位址（需開放 /health 和 /v1/chat/completions）",
+    "Theta API 伺服器位址（需開放 /health 和 /v1/chat/completions）",
   remoteApiKey: "API 金鑰",
   remoteApiKeyHint:
     "與遠端主機上的 API_SERVER_KEY 符合。如果伺服器接受未驗證的請求，可以留空。",
@@ -87,7 +87,7 @@ export default {
   save: "儲存",
   serverConfigTitle: "伺服器設定",
   serverConfigHint:
-    "你已連線到遠端 Hermes 伺服器。模型選擇、供應商 API Key 和憑證均在伺服器的 <code>~/.hermes/.env</code> 和 <code>config.yaml</code> 中管理。請在主機上編輯（例如 <code>docker exec -it hermes vi /opt/data/.env</code>）然後重新啟動容器。",
+    "你已連線到遠端 Theta 伺服器。模型選擇、供應商 API Key 和憑證均在伺服器的 <code>~/.hermes/.env</code> 和 <code>config.yaml</code> 中管理。請在主機上編輯（例如 <code>docker exec -it hermes vi /opt/data/.env</code>）然後重新啟動容器。",
   connectionMode: "模式",
   switchedToLocal: "已切換到本機模式",
 } as const;

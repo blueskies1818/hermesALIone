@@ -1,7 +1,7 @@
 export default {
   title: "Agent 檔案",
   subtitle:
-    "每個 Agent 檔案都是獨立的 Hermes 工作區，擁有自己的設定、記憶和技能",
+    "每個 Agent 檔案都是獨立的 Theta 工作區，擁有自己的設定、記憶和技能",
   newAgent: "新增 Agent",
   namePlaceholder: "Agent 名稱（例如 coder）",
   cloneConfig: "複製預設 Agent 檔案的設定與 API Key",

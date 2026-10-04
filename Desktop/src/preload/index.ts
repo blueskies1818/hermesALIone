@@ -23,9 +23,6 @@ const hermesAPI = {
 
   verifyInstall: (): Promise<boolean> => ipcRenderer.invoke("verify-install"),
 
-  startInstall: (): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke("start-install"),
-
   onInstallProgress: (
     callback: (progress: {
       step: number;

@@ -18,6 +18,12 @@ function App(): React.JSX.Element {
 
   // Check connection on mount
   useEffect(() => {
+    // Dev-only: preview the UI without a backend (VITE_SKIP_CONNECT=1)
+    if (import.meta.env.DEV && import.meta.env.VITE_SKIP_CONNECT === "1") {
+      setConnState("connected");
+      return;
+    }
+
     window.hermesAPI
       .getConnectionConfig()
       .then((config) => {

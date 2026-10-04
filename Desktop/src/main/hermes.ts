@@ -664,7 +664,7 @@ function sendMessageViaApi(
     const msg = err.message || String(err);
     if (msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND")) {
       finish(
-        "Could not reach the Hermes gateway. Make sure the gateway is running on port 8642, then try again.",
+        "Could not reach the Theta gateway. Make sure the gateway is running on port 8642, then try again.",
       );
     } else {
       finish(`API request failed: ${msg}`);
@@ -673,7 +673,7 @@ function sendMessageViaApi(
   req.on("timeout", () => {
     req.destroy();
     finish(
-      "API request timed out. Check the SSH tunnel and remote Hermes gateway.",
+      "API request timed out. Check the SSH tunnel and remote Theta gateway.",
     );
   });
 
@@ -691,7 +691,7 @@ function sendMessageViaApi(
 //  CLI fallback (slow path — spawns process)
 // ────────────────────────────────────────────────────
 
-const NOISE_PATTERNS = [/^[╭╰│╮╯─┌┐└┘┤├┬┴┼]/, /⚕\s*Hermes/];
+const NOISE_PATTERNS = [/^[╭╰│╮╯─┌┐└┘┤├┬┴┼]/, /⚕\s*Theta/];
 
 function sendMessageViaCli(
   message: string,
@@ -906,8 +906,8 @@ function sendMessageViaCli(
       const detail = stderrBuffer.trim();
       cb.onError(
         detail
-          ? `Hermes exited with code ${code}: ${detail}`
-          : `Hermes exited with code ${code}. Check your model configuration and API key.`,
+          ? `Theta exited with code ${code}: ${detail}`
+          : `Theta exited with code ${code}. Check your model configuration and API key.`,
       );
     }
   });

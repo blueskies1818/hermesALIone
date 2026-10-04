@@ -1,7 +1,7 @@
 export default {
   title: "Perfis",
   subtitle:
-    "Cada perfil é um espaço de trabalho isolado do Hermes com a sua própria configuração, memória e competências",
+    "Cada perfil é um espaço de trabalho isolado do Theta com a sua própria configuração, memória e competências",
   newAgent: "Novo Agente",
   namePlaceholder: "Nome do agente (ex: coder)",
   cloneConfig: "Clonar configuração e chaves de API do padrão",
