@@ -297,12 +297,23 @@ def wrap_external(tool_name: str, result: str) -> str:
     )
 
 
+def _is_local_error(result: str) -> bool:
+    """A tool's own error object (produced here, not fetched from outside)."""
+    if not result.lstrip().startswith("{"):
+        return False
+    try:
+        data = json.loads(result)
+    except ValueError:
+        return False
+    return isinstance(data, dict) and "error" in data and len(data) <= 3
+
+
 def guard_result(tool_name: str, result: Any) -> Any:
     """Apply redaction and external-content wrapping to a tool result."""
     if not isinstance(result, str):
         return result
     result = redact_known_secrets(result)
-    if is_external_result_tool(tool_name):
+    if is_external_result_tool(tool_name) and not _is_local_error(result):
         result = wrap_external(tool_name, result)
     return result
 

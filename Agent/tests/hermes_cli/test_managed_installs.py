@@ -1,3 +1,4 @@
+import pytest
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -39,16 +40,16 @@ def test_recommended_update_command_defaults_to_hermes_update(monkeypatch):
         assert recommended_update_command() == "hermes update"
 
 
-def test_cmd_update_blocks_managed_homebrew(monkeypatch, capsys):
+def test_cmd_update_is_disabled_in_theta(monkeypatch, capsys):
+    """Theta: self-update would overwrite the repo; it always refuses."""
     monkeypatch.setenv("HERMES_MANAGED", "homebrew")
 
     with patch("hermes_cli.main.subprocess.run") as mock_run:
-        cmd_update(SimpleNamespace())
+        with pytest.raises(SystemExit):
+            cmd_update(SimpleNamespace())
 
     assert not mock_run.called
-    captured = capsys.readouterr()
-    assert "managed by Homebrew" in captured.err
-    assert "brew upgrade hermes-agent" in captured.err
+    assert "self-update is disabled" in capsys.readouterr().out
 
 
 def test_optional_skill_source_honors_env_override(monkeypatch, tmp_path):

@@ -53,7 +53,8 @@ class TestHandleFunctionCall:
                 session_id="session-1",
             )
 
-        assert result == '{"ok":true}'
+        # Theta: web results are wrapped as untrusted external content.
+        assert '{"ok":true}' in result and 'trust="untrusted"' in result
         assert mock_invoke_hook.call_args_list == [
             call(
                 "pre_tool_call",

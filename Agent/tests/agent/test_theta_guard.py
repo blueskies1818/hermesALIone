@@ -142,3 +142,13 @@ class TestTerminalEnv:
         })
         assert "PATH" in env and "LANG" in env
         assert not {"MY_SERVICE_TOKEN", "DB_PASSWORD", "DEEPSEEK_API_KEY"} & set(env)
+
+
+class TestLocalErrorsNotWrapped:
+    def test_tool_error_objects_stay_plain_json(self):
+        err = json.dumps({"error": "[TOOL_ERROR] Tool execution failed: boom"})
+        assert tg.guard_result("web_search", err) == err
+
+    def test_content_with_error_field_plus_data_is_still_wrapped(self):
+        page = json.dumps({"error": None, "content": "x", "url": "u", "title": "t"})
+        assert tg.guard_result("web_extract", page).startswith("<external_content")
