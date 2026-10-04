@@ -235,13 +235,14 @@ def file_task(task: dict, event_kind: str, payload: dict) -> Path:
         detail = str(payload.get("error") or payload.get("reason") or "").strip()
         parts += ["## Problem", detail or f"Task {status}."]
     if files:
-        parts += ["## Files", f"Workspace: `{task.get('workspace_path')}`", ""]
-        parts += [f"- `{name}`" for name in files]
-    parts += ["## Links", "- Project: [[README]]"]
+        parts += ["## Files", f"Workspace: `{task.get('workspace_path')}`",
+                  "\n".join(f"- `{name}`" for name in files)]
+    links = ["- Project: [[README]]"]
     if conversation:
-        parts.append(f"- Conversation: [[{Path(conversation[0]).stem}]]")
+        links.append(f"- Conversation: [[{Path(conversation[0]).stem}]]")
     elif task.get("session_id"):
-        parts.append(f"- Conversation: session `{task['session_id']}` (not filed yet)")
+        links.append(f"- Conversation: session `{task['session_id']}` (not filed yet)")
+    parts += ["## Links", "\n".join(links)]
 
     path.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
     _set_note("task", task["id"], path, time.time())
@@ -319,21 +320,38 @@ def _transcript(messages: list[tuple]) -> str:
     return transcript[-MAX_TRANSCRIPT_CHARS:]
 
 
+def _fallback_summary(transcript: str) -> dict:
+    lines = transcript.split("\n\n")
+    first_user = next((l[6:] for l in lines if l.startswith("User: ")), "")
+    last_agent = next((l[7:] for l in reversed(lines) if l.startswith("Agent: ")), "")
+    summary = f"Asked: {first_user[:300]}" + (f" Last reply: {last_agent[:300]}" if last_agent else "")
+    return {"title": first_user[:60] or "Conversation", "summary": summary,
+            "decisions": [], "open_items": []}
+
+
 def summarize(transcript: str) -> dict:
-    """Cheap-model summary; falls back to a plain excerpt on any failure."""
+    """Cheap-model summary; falls back to a plain excerpt on any failure.
+
+    Reasoning models spend part of ``max_tokens`` thinking, so the limit is
+    generous and an empty answer is retried once.
+    """
     try:
         from agent.auxiliary_client import call_llm
 
-        response = call_llm(
-            task="compression",
-            messages=[
-                {"role": "system", "content": _SUMMARY_PROMPT},
-                {"role": "user", "content": transcript},
-            ],
-            max_tokens=700,
-            temperature=0.2,
-        )
-        text = (response.choices[0].message.content or "").strip()
+        text = ""
+        for _attempt in range(2):
+            response = call_llm(
+                task="compression",
+                messages=[
+                    {"role": "system", "content": _SUMMARY_PROMPT},
+                    {"role": "user", "content": transcript},
+                ],
+                max_tokens=4000,
+                temperature=0.2,
+            )
+            text = (response.choices[0].message.content or "").strip()
+            if text:
+                break
         match = re.search(r"\{.*\}", text, re.S)
         data = json.loads(match.group(0) if match else text)
         return {
@@ -344,9 +362,7 @@ def summarize(transcript: str) -> dict:
         }
     except Exception as exc:
         logger.warning("vault: conversation summary failed: %s", exc)
-        first_user = next((l[6:] for l in transcript.splitlines() if l.startswith("User: ")), "")
-        return {"title": first_user[:60] or "Conversation", "summary": transcript[:400],
-                "decisions": [], "open_items": []}
+        return _fallback_summary(transcript)
 
 
 def _session_tasks(kanban_db_path, session_id: str) -> list[dict]:
@@ -402,20 +418,39 @@ def file_conversation(session_id: str, state_db: Path, kanban_db_path) -> Option
         info["summary"] or "_No summary._",
     ]
     if info["decisions"]:
-        parts += ["## Decisions"] + [f"- {d}" for d in info["decisions"]]
+        parts += ["## Decisions", "\n".join(f"- {d}" for d in info["decisions"])]
     if info["open_items"]:
-        parts += ["## Open items"] + [f"- {o}" for o in info["open_items"]]
+        parts += ["## Open items", "\n".join(f"- {o}" for o in info["open_items"])]
+    task_notes = []
     if tasks:
-        parts.append("## Tasks")
+        lines = []
         for task in tasks:
             note = _get_note("task", task["id"])
+            if note:
+                task_notes.append(Path(note[0]))
             link = f"[[{Path(note[0]).stem}]]" if note else f"`{task['id']}`"
-            parts.append(f"- {link} — {task['title']} ({task['status']})")
-    parts += ["## Links", "- Project: [[README]]", f"- Session: `{session_id}`"]
+            lines.append(f"- {link} — {task['title']} ({task['status']})")
+        parts += ["## Tasks", "\n".join(lines)]
+    parts += ["## Links", f"- Project: [[README]]\n- Session: `{session_id}`"]
 
     path.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
     _set_note("conversation", session_id, path, float(last or 0))
+    _link_tasks_to_conversation(task_notes, session_id, path)
     return path
+
+
+def _link_tasks_to_conversation(task_notes: list, session_id: str, conversation: Path) -> None:
+    """Point already-filed task notes at the conversation note."""
+    pending = f"- Conversation: session `{session_id}` (not filed yet)"
+    link = f"- Conversation: [[{conversation.stem}]]"
+    for note in task_notes:
+        try:
+            text = note.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        updated = re.sub(r"- Conversation: \[\[[^\]]*\]\]", lambda _m: link, text.replace(pending, link))
+        if updated != text:
+            note.write_text(updated, encoding="utf-8")
 
 
 def idle_sessions(state_db: Path, idle_minutes: float, since: float) -> list[str]:
@@ -470,28 +505,24 @@ def build_readme(bucket: Path) -> Path:
         f"{len(tasks)} task(s), {len(open_tasks)} not done._",
     ]
     if open_tasks:
-        parts.append("## Needs attention")
-        parts += [f"- [[{p.stem}]] — {fm.get('title')} ({fm.get('status')})" for p, fm in open_tasks]
+        parts += ["## Needs attention", "\n".join(
+            f"- [[{p.stem}]] — {fm.get('title')} ({fm.get('status')})" for p, fm in open_tasks)]
     parts.append("## Tasks")
-    if tasks:
-        parts += [f"- {fm.get('created', '')[:10]} · [[{p.stem}]] — {fm.get('title')} ({fm.get('status')})"
-                  for p, fm in tasks]
-    else:
-        parts.append("_None yet._")
+    parts.append("\n".join(
+        f"- {fm.get('created', '')[:10]} · [[{p.stem}]] — {fm.get('title')} ({fm.get('status')})"
+        for p, fm in tasks) or "_None yet._")
     parts.append("## Conversations")
-    if conversations:
-        for p, fm in conversations:
-            summary = str(fm.get("summary") or "").split(". ")[0][:160]
-            parts.append(f"- {fm.get('last_activity', '')[:10]} · [[{p.stem}]] — {summary}")
-    else:
-        parts.append("_None yet._")
+    parts.append("\n".join(
+        f"- {fm.get('last_activity', '')[:10]} · [[{p.stem}]] — "
+        f"{fm.get('title')}: {str(fm.get('summary') or '').split('. ')[0][:160]}"
+        for p, fm in conversations) or "_None yet._")
     documents = []
     for p, fm in tasks:
         workspace = fm.get("workspace")
         for name_ in _task_files(workspace, limit=10):
             documents.append(f"- `{name_}` — from [[{p.stem}]] (`{workspace}`)")
     if documents:
-        parts += ["## Documents"] + documents[:60]
+        parts += ["## Documents", "\n".join(documents[:60])]
 
     readme = bucket / "README.md"
     readme.write_text("\n\n".join(parts) + "\n", encoding="utf-8")

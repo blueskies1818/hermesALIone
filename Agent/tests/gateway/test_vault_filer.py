@@ -199,3 +199,25 @@ class TestProjectTools:
         conn = sqlite3.connect(kanban_db.kanban_db_path())
         row = conn.execute("SELECT tenant, session_id FROM tasks WHERE title = 'Plant tomatoes'").fetchone()
         assert row == ("Garden App", "sess-9")
+
+
+def test_task_note_gets_linked_when_conversation_is_filed(tmp_path):
+    conn = _kanban(tmp_path / "kanban.db")
+    vf.file_task_events(tmp_path / "kanban.db")
+    _add_task(conn, "t_7", "Write plan", session_id="sess-77777777")
+    _event(conn, "t_7", "completed", {"summary": "ok"})
+    vf.file_task_events(tmp_path / "kanban.db")
+    task_note = next((get_default_hermes_root() / "vault" / "general" / "tasks").glob("*-t_7.md"))
+    assert "(not filed yet)" in task_note.read_text(encoding="utf-8")
+
+    _state_db(tmp_path / "state.db", "sess-77777777", [("user", "plan")], time.time() - 3600)
+    conv = vf.file_conversation("sess-77777777", tmp_path / "state.db", tmp_path / "kanban.db")
+
+    text = task_note.read_text(encoding="utf-8")
+    assert f"- Conversation: [[{conv.stem}]]" in text and "(not filed yet)" not in text
+
+
+def test_fallback_summary_is_readable():
+    info = vf._fallback_summary("User: Plan my garden\n\nAgent: Working on it\n\nAgent: Done, plan.md written")
+    assert info["title"] == "Plan my garden"
+    assert info["summary"] == "Asked: Plan my garden Last reply: Done, plan.md written"
