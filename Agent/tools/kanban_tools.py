@@ -31,6 +31,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import time
+from pathlib import Path
 from typing import Any, Optional
 
 from tools.registry import registry, tool_error
@@ -93,6 +96,50 @@ def _check_kanban_orchestrator_mode() -> bool:
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+def _default_workspace_root() -> Optional[Path]:
+    """Theta: ``kanban.default_workspace_root`` from the current profile's
+    config, falling back to the root config. ``None`` when unset."""
+    from hermes_cli.config import load_config
+
+    candidates = []
+    try:
+        candidates.append(load_config())
+    except Exception:
+        pass
+    try:
+        import yaml
+        from hermes_constants import get_default_hermes_root
+
+        root_cfg = get_default_hermes_root() / "config.yaml"
+        if root_cfg.exists():
+            candidates.append(yaml.safe_load(root_cfg.read_text(encoding="utf-8")) or {})
+    except Exception:
+        pass
+    for cfg in candidates:
+        value = ((cfg or {}).get("kanban") or {}).get("default_workspace_root")
+        if value:
+            path = Path(str(value)).expanduser()
+            if path.is_absolute():
+                return path
+    return None
+
+
+def _default_workspace(title: str, workspace_path: Optional[str]) -> tuple:
+    """Workspace for a task whose creator didn't choose one.
+
+    Upstream default is ``scratch``, which is deleted when the task
+    completes. With ``kanban.default_workspace_root`` set, each task gets
+    a persistent ``dir`` workspace under that root instead, so results
+    survive (and can be filed into the vault).
+    """
+    root = _default_workspace_root()
+    if root is None or workspace_path:
+        return "scratch", workspace_path
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "task"
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return "dir", str(root / f"{stamp}-{slug}")
+
 
 def _default_task_id(arg: Optional[str]) -> Optional[str]:
     """Resolve ``task_id`` arg or fall back to the env var the dispatcher set."""
@@ -659,8 +706,10 @@ def _handle_create(args: dict, **kw) -> str:
     # CLI / dashboard paths and on legacy hosts that don't set the env.
     session_id = args.get("session_id") or os.environ.get("HERMES_SESSION_ID")
     priority = args.get("priority")
-    workspace_kind = args.get("workspace_kind") or "scratch"
+    workspace_kind = args.get("workspace_kind")
     workspace_path = args.get("workspace_path")
+    if not workspace_kind:
+        workspace_kind, workspace_path = _default_workspace(str(title), workspace_path)
     triage, bool_error = _parse_bool_arg(args, "triage")
     if bool_error:
         return tool_error(bool_error)

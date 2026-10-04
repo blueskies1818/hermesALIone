@@ -47,6 +47,33 @@ class TestRoster:
         # The switch itself persists for later turns.
         assert roster.get_session_agent("s1") == "researcher"
 
+    def test_assign_initial_agent_only_for_new_sessions(self):
+        _make_agent_profile("voice")
+        _make_agent_profile("researcher")
+
+        assert roster.assign_initial_agent("s1", "voice") is True
+        assert roster.get_session_agent("s1") == "voice"
+        assert roster.take_pending_handoff("s1") is None
+        # An existing session (incl. one that switched) is never overridden.
+        roster.record_handoff("s2", "researcher", "")
+        assert roster.assign_initial_agent("s2", "voice") is False
+        assert roster.get_session_agent("s2") == "researcher"
+        assert roster.assign_initial_agent("s1", "researcher") is False
+        assert roster.get_session_agent("s1") == "voice"
+
+    def test_assign_initial_agent_ignores_missing_agent(self):
+        assert roster.assign_initial_agent("s1", "voice") is False
+        assert roster.get_session_agent("s1") == "default"
+
+    def test_voice_agent_name_default_and_configured(self):
+        from hermes_constants import get_default_hermes_root
+
+        assert roster.voice_agent_name() == "voice"
+        (get_default_hermes_root() / "config.yaml").write_text(
+            yaml.safe_dump({"theta": {"voice_agent": "echo"}}), encoding="utf-8"
+        )
+        assert roster.voice_agent_name() == "echo"
+
     def test_list_agents_includes_profiles_with_descriptions(self):
         _make_agent_profile("researcher", description="Finds and summarises sources")
         agents = {a["name"]: a for a in roster.list_agents()}

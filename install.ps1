@@ -40,6 +40,10 @@ $Workspace = Join-Path $ThetaHome "workspace"
 New-Item -ItemType Directory -Force $Workspace | Out-Null
 & "$Root\Agent\.venv\Scripts\python.exe" -c "import sys; from hermes_cli.config import load_config, save_config; c = load_config(); t = c.setdefault('terminal', {}); (t.get('cwd') in (None, '', '.')) and (t.__setitem__('cwd', sys.argv[1]), save_config(c))" ($Workspace -replace '\\', '/')
 
+# Kanban tasks get persistent folders under workspace\tasks instead of
+# scratch dirs that are deleted when the task completes.
+& "$Root\Agent\.venv\Scripts\python.exe" -c "import sys; from hermes_cli.config import load_config, save_config; c = load_config(); k = c.setdefault('kanban', {}); k.get('default_workspace_root') or (k.__setitem__('default_workspace_root', sys.argv[1]), save_config(c))" ((Join-Path $Workspace "tasks") -replace '\\', '/')
+
 # Provider keys live only in $ThetaHome\.env (never in the repo).
 $EnvFile = Join-Path $ThetaHome ".env"
 if (-not (Test-Path $EnvFile)) { Copy-Item "$Root\Agent\.env.example" $EnvFile }
@@ -52,4 +56,4 @@ if (-not (Select-String -Path $EnvFile -Pattern '^\s*API_SERVER_KEY=\S' -Quiet))
 }
 
 Write-Host ""
-Write-Host "Done. Add a provider key (e.g. ANTHROPIC_API_KEY or OPENROUTER_API_KEY) to $EnvFile, then run start.ps1." -ForegroundColor Green
+Write-Host "Done. Add a provider key (e.g. ANTHROPIC_API_KEY, OPENROUTER_API_KEY or DEEPSEEK_API_KEY) to $EnvFile, then run start.ps1." -ForegroundColor Green

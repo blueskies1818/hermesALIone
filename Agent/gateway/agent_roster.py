@@ -108,6 +108,34 @@ def get_session_agent(session_id: Optional[str]) -> str:
     return row[0] if row else DEFAULT_AGENT
 
 
+def assign_initial_agent(session_id: Optional[str], agent: str) -> bool:
+    """Start ``session_id`` with ``agent`` if the session has no agent yet.
+
+    Used for entry points with a natural default agent (voice mode starts
+    with the voice agent). Never overrides an earlier switch. Returns True
+    when the agent was assigned.
+    """
+    if not session_id or not agent_exists(agent):
+        return False
+    target = normalize_agent_name(agent)
+    with _db() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO session_agents"
+            " (session_id, agent, previous_agent, handoff_note, handoff_pending, updated_at)"
+            " VALUES (?, ?, NULL, '', 0, ?)",
+            (session_id, target, time.time()),
+        )
+        return cur.rowcount == 1
+
+
+def voice_agent_name() -> str:
+    """Agent that voice-mode conversations start with (``theta.voice_agent``)."""
+    from hermes_constants import get_default_hermes_root
+
+    theta_cfg = _read_config(get_default_hermes_root()).get("theta") or {}
+    return str(theta_cfg.get("voice_agent") or "voice")
+
+
 def record_handoff(session_id: str, to_agent: str, note: str = "") -> str:
     """Point ``session_id`` at ``to_agent`` and mark a handoff as pending."""
     target = normalize_agent_name(to_agent)

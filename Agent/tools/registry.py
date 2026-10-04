@@ -119,15 +119,23 @@ class ToolEntry:
 # ---------------------------------------------------------------------------
 
 _CHECK_FN_TTL_SECONDS = 30.0
-_check_fn_cache: Dict[Callable, tuple[float, bool]] = {}
+_check_fn_cache: Dict[tuple, tuple[float, bool]] = {}
 _check_fn_cache_lock = threading.Lock()
 
 
 def _check_fn_cached(fn: Callable) -> bool:
-    """Return bool(fn()), TTL-cached across calls. Swallows exceptions as False."""
+    """Return bool(fn()), TTL-cached across calls. Swallows exceptions as False.
+
+    Cached per profile: some checks read the current profile's config
+    (e.g. kanban orchestrator mode), and one process can run agents for
+    several profiles via the context-local HERMES_HOME override.
+    """
+    from hermes_constants import get_hermes_home_override
+
+    key = (fn, get_hermes_home_override())
     now = time.monotonic()
     with _check_fn_cache_lock:
-        cached = _check_fn_cache.get(fn)
+        cached = _check_fn_cache.get(key)
         if cached is not None:
             ts, value = cached
             if now - ts < _CHECK_FN_TTL_SECONDS:
@@ -137,7 +145,7 @@ def _check_fn_cached(fn: Callable) -> bool:
     except Exception:
         value = False
     with _check_fn_cache_lock:
-        _check_fn_cache[fn] = (now, value)
+        _check_fn_cache[key] = (now, value)
     return value
 
 

@@ -1245,6 +1245,16 @@ class APIServerAdapter(BasePlatformAdapter):
             session_id = _derive_chat_session_id(system_prompt, first_user)
             # history already set from request body above
 
+        if voice_mode:
+            # Theta: voice conversations start with the voice agent (if one
+            # exists); an explicit switch earlier in the session wins.
+            try:
+                from gateway.agent_roster import assign_initial_agent, voice_agent_name
+
+                assign_initial_agent(session_id, voice_agent_name())
+            except Exception as exc:
+                logger.warning("Could not assign voice agent to %s: %s", session_id, exc)
+
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:29]}"
         model_name = body.get("model", self._model_name)
         created = int(time.time())
