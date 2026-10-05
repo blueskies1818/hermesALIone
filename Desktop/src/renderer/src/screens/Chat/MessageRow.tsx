@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
-import { Check, Copy, Pencil, RefreshCw } from "lucide-react";
+import { Check, Copy, Loader2, Pencil, RefreshCw, Square, Volume2 } from "lucide-react";
+import { readAloud, stopReading, useReadAloud } from "./readAloud";
 import icon from "../../assets/icon.png";
 import { AgentMarkdown } from "../../components/AgentMarkdown";
 import { AgentSteps } from "./AgentSteps";
@@ -56,6 +57,8 @@ export const MessageRow = memo(function MessageRow({
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const reading = useReadAloud();
+  const readingThis = reading.id === msg.id && reading.phase !== "idle";
 
   const copyMessage = (): void => {
     navigator.clipboard.writeText(msg.content).then(() => {
@@ -141,6 +144,25 @@ export const MessageRow = memo(function MessageRow({
           {showEdit && (
             <button className="chat-msg-action" onClick={startEdit} title="Edit and resend">
               <Pencil size={13} />
+            </button>
+          )}
+          {msg.role === "agent" && !(isLast && isLoading) && (
+            <button
+              className={`chat-msg-action${readingThis ? " active" : ""}`}
+              onClick={() => (readingThis ? stopReading() : readAloud(msg.id, msg.content))}
+              title={
+                reading.id === msg.id && reading.error
+                  ? reading.error
+                  : readingThis ? "Stop reading" : "Read aloud"
+              }
+            >
+              {reading.id === msg.id && reading.phase === "loading" ? (
+                <Loader2 size={13} className="spin" />
+              ) : readingThis ? (
+                <Square size={12} />
+              ) : (
+                <Volume2 size={13} />
+              )}
             </button>
           )}
           {showRegenerate && (

@@ -9030,3 +9030,18 @@ body {
   font-size: 13px;
   line-height: 1.6;
 }
+
+/* ===== Theta: dictation and read aloud ===== */
+.spin { animation: spin 0.9s linear infinite; }
+.chat-mic-btn.recording {
+  color: #fff;
+  background: var(--error, #e5484d);
+  animation: theta-mic-pulse 1.4s ease-in-out infinite;
+}
+.chat-mic-btn.recording:hover:not(:disabled) { background: var(--error, #e5484d); color: #fff; }
+@keyframes theta-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(229, 72, 77, 0); }
+}
+.chat-msg-actions:has(.chat-msg-action.active) { opacity: 1; }
+.chat-msg-action.active { color: var(--accent); }

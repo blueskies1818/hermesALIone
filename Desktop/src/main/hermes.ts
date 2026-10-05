@@ -1,5 +1,5 @@
 import { ChildProcess, spawn } from "child_process";
-import { existsSync, readFileSync, writeFileSync, appendFileSync, unlinkSync, mkdtempSync } from "fs";
+import { existsSync, readFileSync, appendFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import http from "http";
@@ -1012,79 +1012,64 @@ export async function transcribeAudio(
     bytes[i] = binary.charCodeAt(i);
   }
 
-  // Write to temp file
-  const tmpDir = mkdtempSync(join(require("os").tmpdir?.() || "/tmp", "hermes-stt-"));
-  const tmpPath = join(tmpDir, "recording.wav");
-  writeFileSync(tmpPath, bytes);
+  const transcribeUrl = `${getApiUrl()}/v1/transcribe`;
+  const boundary = `----HermesTranscribe${Date.now()}`;
 
-  try {
-    const transcribeUrl = `${getApiUrl()}/v1/transcribe`;
-    const boundary = `----HermesTranscribe${Date.now()}`;
+  // Build multipart body
+  const header = [
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="file"; filename="recording.wav"`,
+    `Content-Type: audio/wav`,
+    ``,
+  ].join("\r\n");
+  const footer = `\r\n--${boundary}--\r\n`;
 
-    // Build multipart body
-    const header = [
-      `--${boundary}`,
-      `Content-Disposition: form-data; name="file"; filename="recording.wav"`,
-      `Content-Type: audio/wav`,
-      ``,
-    ].join("\r\n");
-    const footer = `\r\n--${boundary}--\r\n`;
+  const body = Buffer.concat([
+    Buffer.from(header + "\r\n", "utf-8"),
+    bytes,
+    Buffer.from(footer, "utf-8"),
+  ]);
 
-    const body = Buffer.concat([
-      Buffer.from(header + "\r\n", "utf-8"),
-      bytes,
-      Buffer.from(footer, "utf-8"),
-    ]);
-
-    const headers: Record<string, string> = {
-      "Content-Type": `multipart/form-data; boundary=${boundary}`,
-      ...getRemoteAuthHeader(),
-    };
-    if (!isRemoteMode()) {
-      const apiServerKey = getApiServerKey();
-      if (apiServerKey) {
-        headers.Authorization = `Bearer ${apiServerKey}`;
-      }
-    }
-
-    return new Promise((resolve) => {
-      const requester = transcribeUrl.startsWith("https") ? https.request : http.request;
-      const req = requester(
-        transcribeUrl,
-        { method: "POST", headers, timeout: 30000 },
-        (res) => {
-          let data = "";
-          res.on("data", (chunk: Buffer) => {
-            data += chunk.toString();
-          });
-          res.on("end", () => {
-            try {
-              resolve(JSON.parse(data));
-            } catch {
-              resolve({ success: false, transcript: "", error: `HTTP ${res.statusCode}: ${data.slice(0, 200)}` });
-            }
-          });
-        },
-      );
-      req.on("error", (err) => {
-        resolve({ success: false, transcript: "", error: err.message });
-      });
-      req.on("timeout", () => {
-        req.destroy();
-        resolve({ success: false, transcript: "", error: "Transcription request timed out" });
-      });
-      req.write(body);
-      req.end();
-    });
-  } finally {
-    // Clean up temp file
-    try {
-      unlinkSync(tmpPath);
-      require("fs").rmdirSync(tmpDir);
-    } catch {
-      // best effort
+  const headers: Record<string, string> = {
+    "Content-Type": `multipart/form-data; boundary=${boundary}`,
+    ...getRemoteAuthHeader(),
+  };
+  if (!isRemoteMode()) {
+    const apiServerKey = getApiServerKey();
+    if (apiServerKey) {
+      headers.Authorization = `Bearer ${apiServerKey}`;
     }
   }
+
+  return new Promise((resolve) => {
+    const requester = transcribeUrl.startsWith("https") ? https.request : http.request;
+    const req = requester(
+      transcribeUrl,
+      { method: "POST", headers, timeout: 30000 },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            resolve({ success: false, transcript: "", error: `HTTP ${res.statusCode}: ${data.slice(0, 200)}` });
+          }
+        });
+      },
+    );
+    req.on("error", (err) => {
+      resolve({ success: false, transcript: "", error: err.message });
+    });
+    req.on("timeout", () => {
+      req.destroy();
+      resolve({ success: false, transcript: "", error: "Transcription request timed out" });
+    });
+    req.write(body);
+    req.end();
+  });
 }
 
 // Lazy init — called on first sendMessage or gateway start

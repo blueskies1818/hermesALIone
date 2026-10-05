@@ -7,7 +7,8 @@ import {
   forwardRef,
   useImperativeHandle,
 } from "react";
-import { Send, Square as Stop, Slash, Paperclip } from "lucide-react";
+import { Send, Square as Stop, Slash, Paperclip, Mic, Loader2 } from "lucide-react";
+import { useDictation } from "./hooks/useDictation";
 import { isImeComposing } from "./keyboard";
 import { useI18n } from "../../components/useI18n";
 import { SLASH_COMMANDS, type SlashCommand } from "./slashCommands";
@@ -61,6 +62,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const slashMenuRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Theta: dictation — transcribed on the server, appended to the draft
+    const dictation = useDictation((text) => {
+      setInput((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text));
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.style.height = "auto";
+        el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+        el.focus();
+      });
+    });
 
     const autoResize = useCallback((): void => {
       const el = inputRef.current;
@@ -399,6 +411,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             type="button"
           >
             <Paperclip size={16} />
+          </button>
+          <button
+            className={`chat-attach-btn chat-mic-btn${dictation.phase === "recording" ? " recording" : ""}`}
+            onClick={dictation.toggle}
+            disabled={dictation.phase === "transcribing"}
+            title={
+              dictation.error ||
+              (dictation.phase === "recording" ? "Stop and transcribe" : "Dictate")
+            }
+            aria-label="Dictate"
+            type="button"
+          >
+            {dictation.phase === "transcribing" ? (
+              <Loader2 size={16} className="spin" />
+            ) : (
+              <Mic size={16} />
+            )}
           </button>
           <textarea
             ref={inputRef}

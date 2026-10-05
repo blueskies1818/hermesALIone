@@ -835,6 +835,26 @@ function setupIPC(): void {
     return transcribeAudio(base64Audio);
   });
 
+  // Theta: read a message aloud — synthesised on the server
+  ipcMain.handle("speak-text", async (_event, text: string) => {
+    if (typeof text !== "string" || !text.trim()) {
+      return { success: false, error: "Nothing to read" };
+    }
+    try {
+      const { ok, data } = await apiFetch("/v1/tts", {
+        method: "POST",
+        body: { text },
+        timeoutMs: 120000,
+      });
+      const d = (data || {}) as { chunks?: string[]; error?: string; detail?: string };
+      return ok
+        ? { success: true, chunks: d.chunks || [] }
+        : { success: false, error: d.error || d.detail || "Read aloud failed" };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  });
+
   // Attachment staging — for pasted blobs that have no filesystem origin.
   ipcMain.handle(
     "stage-attachment",

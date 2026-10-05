@@ -204,6 +204,7 @@ interface HermesAPI {
   sendAudio: (
     base64Audio: string,
   ) => Promise<{ success: boolean; transcript: string; error?: string; provider?: string }>;
+  speakText: (text: string) => Promise<{ success: boolean; chunks?: string[]; error?: string }>;
   getPathForFile: (file: File) => string;
   stageAttachment: (
     sessionId: string,

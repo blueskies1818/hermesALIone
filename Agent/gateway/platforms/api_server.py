@@ -652,6 +652,38 @@ except ImportError:
     _cron_trigger = None
 
 
+TTS_MAX_CHARS = 12000
+TTS_CHUNK_CHARS = 800
+
+
+def tts_chunks(text: str, limit: int = TTS_CHUNK_CHARS) -> list:
+    """Split text into pieces of at most *limit* characters for TTS,
+    breaking at paragraph, then sentence, then word boundaries."""
+    import re as _re
+
+    pieces: list = []
+    for para in _re.split(r"\n\s*\n", text):
+        para = " ".join(para.split())
+        while len(para) > limit:
+            cut = max(para.rfind(". ", 0, limit), para.rfind("! ", 0, limit), para.rfind("? ", 0, limit))
+            if cut <= 0:
+                cut = para.rfind(" ", 0, limit)
+            if cut <= 0:
+                cut = limit - 1
+            pieces.append(para[: cut + 1].strip())
+            para = para[cut + 1:].strip()
+        if para:
+            pieces.append(para)
+    # Merge short neighbours so we make fewer provider calls.
+    merged: list = []
+    for piece in pieces:
+        if merged and len(merged[-1]) + 1 + len(piece) <= limit:
+            merged[-1] = merged[-1] + " " + piece
+        else:
+            merged.append(piece)
+    return merged
+
+
 class APIServerAdapter(BasePlatformAdapter):
     """
     OpenAI-compatible HTTP API server adapter.
@@ -1345,6 +1377,43 @@ class APIServerAdapter(BasePlatformAdapter):
                     os.unlink(tmp_path)
                 except OSError:
                     pass
+
+    async def _handle_tts(self, request: "web.Request") -> "web.Response":
+        """POST /v1/tts — Theta: read a message aloud.
+
+        Body ``{"text": str}``. Returns ``{"success", "chunks": [base64 mp3]}``
+        synthesised with the configured TTS provider, in playback order.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+        text = body.get("text") if isinstance(body, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            return web.json_response({"success": False, "error": "Missing 'text'"}, status=400)
+        try:
+            from tools.tts_streaming import strip_markdown, stream_tts_to_buffer
+        except ImportError:
+            return web.json_response(
+                {"success": False, "error": "Text-to-speech is not available"}, status=500,
+            )
+        parts = tts_chunks(strip_markdown(text[:TTS_MAX_CHARS]))
+        if not parts:
+            return web.json_response({"success": False, "error": "Nothing to read"}, status=400)
+        audio = await asyncio.gather(
+            *(asyncio.to_thread(stream_tts_to_buffer, part) for part in parts),
+            return_exceptions=True,
+        )
+        chunks = [a for a in audio if isinstance(a, str) and a]
+        if not chunks:
+            return web.json_response(
+                {"success": False, "error": "Text-to-speech failed (check the TTS provider)"},
+                status=502,
+            )
+        return web.json_response({"success": True, "chunks": chunks})
 
     async def _handle_chat_completions(self, request: "web.Request") -> "web.Response":
         """POST /v1/chat/completions — OpenAI Chat Completions format."""
@@ -3971,6 +4040,7 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/v1/runs/{run_id}/stop", self._handle_stop_run)
             # Voice transcription endpoint
             self._app.router.add_post("/v1/transcribe", self._handle_transcribe)
+            self._app.router.add_post("/v1/tts", self._handle_tts)
             # Theta: live per-session events (proactive worker updates)
             self._app.router.add_get("/v1/sessions/{session_id}/events", self._handle_session_events)
             # Start background sweep to clean up orphaned (unconsumed) run streams

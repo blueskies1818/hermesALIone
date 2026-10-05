@@ -194,6 +194,9 @@ const hermesAPI = {
   ): Promise<{ success: boolean; transcript: string; error?: string; provider?: string }> =>
     ipcRenderer.invoke("send-audio", base64Audio),
 
+  speakText: (text: string): Promise<{ success: boolean; chunks?: string[]; error?: string }> =>
+    ipcRenderer.invoke("speak-text", text),
+
   // Resolve the absolute filesystem path for a File coming from drag-drop
   // or the file picker.  Returns "" for blobs that have no origin path
   // (e.g. clipboard paste) — caller should stageAttachment for those.
