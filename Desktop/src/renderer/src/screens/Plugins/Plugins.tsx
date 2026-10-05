@@ -78,7 +78,11 @@ function Plugins({ profile: _profile }: PluginsProps): React.JSX.Element {
         );
         setContextSel(p.context_engine || "compressor");
       })
-      .catch(() => showStatus("Failed to load plugins", "error"));
+      .catch((e: Error) => {
+        // IPC wraps main-process errors: "Error invoking remote method '…': Error: <msg>"
+        const msg = String(e?.message || "").replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+        showStatus(msg.includes("server needs its key") ? msg : "Failed to load plugins", "error");
+      });
   }, []);
 
   useEffect(() => {

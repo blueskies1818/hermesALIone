@@ -18,6 +18,7 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
   // Local
   const [localTesting, setLocalTesting] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [localApiKey, setLocalApiKey] = useState("");
 
   // Remote
   const [remoteUrl, setRemoteUrl] = useState(savedMode === "remote" ? savedUrl || "" : "");
@@ -40,7 +41,7 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
     try {
       const ok = await window.hermesAPI.testRemoteConnection("http://127.0.0.1:9119");
       if (ok) {
-        await window.hermesAPI.setConnectionConfig("local", "", "");
+        await window.hermesAPI.setConnectionConfig("local", "", localApiKey.trim());
         onConnected();
       } else {
         setLocalError(t("connect.localNotRunning"));
@@ -115,7 +116,22 @@ function Connect({ savedMode, savedUrl, onConnected }: ConnectProps): React.JSX.
         <div className="connect-info-box">
           <p>The Theta Agent runs on this machine. Make sure the gateway is
           running (<code>./start.sh</code> or <code>./start.bat</code>) and
-          listening on port 9119. No additional setup needed.</p>
+          listening on port 9119.</p>
+        </div>
+
+        <div className="connect-form">
+          <label className="connect-label">Server key (optional)</label>
+          <input
+            type="password"
+            className="input"
+            placeholder="API_SERVER_KEY from ~/.theta/.env"
+            value={localApiKey}
+            onChange={(e) => setLocalApiKey(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleLocalConnect(); }}
+          />
+          <p className="connect-hint">
+            Needed for protected pages such as Plugins. Everything else works without it.
+          </p>
         </div>
 
         <button

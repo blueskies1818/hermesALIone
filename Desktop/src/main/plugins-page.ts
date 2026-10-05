@@ -38,7 +38,12 @@ export interface PluginsHubData {
 
 export async function getPluginsHub(): Promise<PluginsHubData> {
   if (isRemoteMode()) {
-    const { ok, data } = await apiFetch("/api/dashboard/plugins/hub");
+    const { ok, status, data } = await apiFetch("/api/dashboard/plugins/hub");
+    if (status === 401) {
+      throw new Error(
+        "The server needs its key for plugins. Add API_SERVER_KEY (from ~/.theta/.env) in Settings → Connection → Server key.",
+      );
+    }
     if (!ok) throw new Error("Failed to fetch plugin hub");
     return data as PluginsHubData;
   }

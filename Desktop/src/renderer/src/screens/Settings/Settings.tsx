@@ -608,6 +608,26 @@ function Settings({ profile }: { profile?: string }): React.JSX.Element {
           </div>
         </div>
 
+        {connMode === "local" && (
+          <div className="settings-field">
+            <label className="settings-field-label">Server key</label>
+            <input
+              className="input"
+              type="password"
+              value={connApiKey}
+              onChange={(e) => setConnApiKey(e.target.value)}
+              onFocus={(e) => {
+                if (connApiKey === connApiKeyMask) e.currentTarget.select();
+              }}
+              placeholder="API_SERVER_KEY from ~/.theta/.env"
+              onBlur={handleSaveConnection}
+            />
+            <div className="settings-field-hint">
+              Sent to the local server so protected pages (Plugins) work.
+            </div>
+          </div>
+        )}
+
         {connMode === "remote" && (
           <>
             <div className="settings-field">
