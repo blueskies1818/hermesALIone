@@ -84,13 +84,56 @@ export function writeDesktopConfig(data: Record<string, unknown>): void {
   writeFileSync(desktopConfigFile(), JSON.stringify(data, null, 2), "utf-8");
 }
 
+// Theta: the server key is encrypted at rest with Electron safeStorage
+// (Windows DPAPI / macOS Keychain). Plain text is only used when encryption
+// isn't available (e.g. tests); an old plain key is migrated on first read.
+type SafeStorage = typeof import("electron").safeStorage;
+
+function safeStorageOrNull(): SafeStorage | null {
+  try {
+    const { safeStorage } = require("electron") as typeof import("electron");
+    return safeStorage?.isEncryptionAvailable?.() ? safeStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeApiKey(data: Record<string, unknown>, apiKey: string): void {
+  const vault = apiKey ? safeStorageOrNull() : null;
+  if (vault) {
+    data.remoteApiKeyEnc = vault.encryptString(apiKey).toString("base64");
+    delete data.remoteApiKey;
+  } else {
+    data.remoteApiKey = apiKey;
+    delete data.remoteApiKeyEnc;
+  }
+}
+
+function loadApiKey(data: Record<string, unknown>): string {
+  if (typeof data.remoteApiKeyEnc === "string" && data.remoteApiKeyEnc) {
+    const vault = safeStorageOrNull();
+    if (!vault) return "";
+    try {
+      return vault.decryptString(Buffer.from(data.remoteApiKeyEnc, "base64"));
+    } catch {
+      return "";
+    }
+  }
+  const plain = (data.remoteApiKey as string) || "";
+  if (plain && safeStorageOrNull()) {
+    storeApiKey(data, plain);
+    writeDesktopConfig(data);
+  }
+  return plain;
+}
+
 export function getConnectionConfig(): ConnectionConfig {
   const data = readDesktopConfig();
   const ssh = (data.sshConfig as Partial<SshConnectionConfig>) ?? {};
   return {
     mode: (data.connectionMode as "local" | "remote" | "ssh") || "local",
     remoteUrl: (data.remoteUrl as string) || "",
-    apiKey: (data.remoteApiKey as string) || "",
+    apiKey: loadApiKey(data),
     ssh: {
       host: (ssh.host as string) || "",
       port: (ssh.port as number) || 22,
@@ -117,7 +160,7 @@ export function setConnectionConfig(config: ConnectionConfig): void {
   const data = readDesktopConfig();
   data.connectionMode = config.mode;
   data.remoteUrl = config.remoteUrl;
-  data.remoteApiKey = config.apiKey;
+  storeApiKey(data, config.apiKey);
   if (config.mode === "ssh") {
     data.sshConfig = config.ssh;
   }
