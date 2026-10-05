@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage } from "../types";
 
 /**
@@ -11,11 +11,15 @@ import type { ChatMessage } from "../types";
 export function useChatScroll(messages: ChatMessage[]): {
   containerRef: React.RefObject<HTMLDivElement | null>;
   bottomRef: React.RefObject<HTMLDivElement | null>;
+  /** Theta: true when the user has scrolled away from the latest message. */
+  isAwayFromBottom: boolean;
+  jumpToBottom: () => void;
 } {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const prevMessageCountRef = useRef(messages.length);
+  const [isAwayFromBottom, setAwayFromBottom] = useState(false);
 
   const scrollToBottom = useCallback((force?: boolean) => {
     if (!force && userScrolledUpRef.current) return;
@@ -30,6 +34,7 @@ export function useChatScroll(messages: ChatMessage[]): {
       const el = container!;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
       userScrolledUpRef.current = !atBottom;
+      setAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 240);
     }
     container.addEventListener("scroll", handleScroll, { passive: true });
     return () => container.removeEventListener("scroll", handleScroll);
@@ -50,5 +55,11 @@ export function useChatScroll(messages: ChatMessage[]): {
     }
   }, [messages, scrollToBottom]);
 
-  return { containerRef, bottomRef };
+  const jumpToBottom = useCallback(() => {
+    userScrolledUpRef.current = false;
+    setAwayFromBottom(false);
+    scrollToBottom(true);
+  }, [scrollToBottom]);
+
+  return { containerRef, bottomRef, isAwayFromBottom, jumpToBottom };
 }

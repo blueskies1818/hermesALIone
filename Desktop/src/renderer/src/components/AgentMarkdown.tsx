@@ -1,6 +1,11 @@
 import { useState, useEffect, memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
+import { MermaidBlock } from "./MermaidBlock";
+import { normalizeMathDelimiters } from "./mathDelimiters";
 import { Copy } from "lucide-react";
 import { useI18n } from "./useI18n";
 
@@ -131,7 +136,8 @@ const AgentMarkdown = memo(function AgentMarkdown({
 }): React.JSX.Element {
   return (
     <Markdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
       components={{
         a: ({ href, children }) => (
           <a
@@ -165,11 +171,14 @@ const AgentMarkdown = memo(function AgentMarkdown({
               </code>
             );
           }
+          if (/language-mermaid/.test(className || "")) {
+            return <MermaidBlock code={String(children).replace(/\n$/, "")} />;
+          }
           return <CodeBlock className={className}>{children}</CodeBlock>;
         },
       }}
     >
-      {children}
+      {normalizeMathDelimiters(children)}
     </Markdown>
   );
 });

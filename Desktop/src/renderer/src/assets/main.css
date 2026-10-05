@@ -8915,3 +8915,37 @@ body {
   font-size: 13px;
   outline: none;
 }
+
+/* ===== Theta: rendering extras ===== */
+.chat-jump-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 120px;
+  transform: translateX(-50%);
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-bright);
+  border-radius: 50%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  z-index: 5;
+}
+.chat-jump-bottom:hover { background: var(--bg-hover); }
+.mermaid-block {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-block svg { max-width: 100%; height: auto; }
+.mermaid-loading { color: var(--text-muted); font-size: 12px; }
+.mermaid-fallback { margin: 0; padding: 12px; font-size: 12.5px; white-space: pre-wrap; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }

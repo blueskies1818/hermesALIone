@@ -1,3 +1,4 @@
+import { ArrowDown } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatHeader, type SessionAgentInfo } from "./ChatHeader";
@@ -54,7 +55,7 @@ function Chat({
     };
   }, []);
 
-  const { containerRef, bottomRef } = useChatScroll(messages);
+  const { containerRef, bottomRef, isAwayFromBottom, jumpToBottom } = useChatScroll(messages);
   const modelConfig = useModelConfig(profile);
   const {
     fastMode,
@@ -253,6 +254,11 @@ function Chat({
         )}
         <div ref={bottomRef} />
       </div>
+      {isAwayFromBottom && (
+        <button className="chat-jump-bottom" onClick={jumpToBottom} title="Jump to latest">
+          <ArrowDown size={16} />
+        </button>
+      )}
 
       <div className="chat-input-area">
         <ChatInput
