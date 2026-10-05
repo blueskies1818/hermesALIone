@@ -175,25 +175,81 @@ async def rename_session(session_id: str, body: dict):
 # Credential pool
 # ---------------------------------------------------------------------------
 
+# Secret fields in pool entries. Values never leave the server in full:
+# clients get a mask ending in the last 4 characters, and a masked value
+# sent back on save means "keep the stored secret".
+_SECRET_FIELDS = ("access_token", "refresh_token", "api_key", "key")
+MASK_PREFIX = "••••"
+
+
+def mask_secret(value: Any) -> Any:
+    if not isinstance(value, str) or not value:
+        return value
+    return MASK_PREFIX + value[-4:] if len(value) > 8 else MASK_PREFIX
+
+
+def mask_pool(pool: dict) -> dict:
+    return {
+        provider: [
+            {k: (mask_secret(v) if k in _SECRET_FIELDS else v) for k, v in entry.items()}
+            if isinstance(entry, dict) else entry
+            for entry in (entries or [])
+        ]
+        for provider, entries in (pool or {}).items()
+    }
+
+
+def unmask_entries(entries: list, existing: list) -> list:
+    """Replace masked secrets with the stored values they stand for."""
+    stored = [e for e in existing if isinstance(e, dict)]
+    out = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        entry = dict(entry)
+        for field in _SECRET_FIELDS:
+            value = entry.get(field)
+            if isinstance(value, str) and value.startswith(MASK_PREFIX):
+                tail = value[len(MASK_PREFIX):]
+                match = next(
+                    (e for e in stored
+                     if (entry.get("id") and e.get("id") == entry.get("id"))
+                     or (tail and any(isinstance(e.get(f), str) and e[f].endswith(tail)
+                                      for f in _SECRET_FIELDS))),
+                    None,
+                )
+                original = None
+                if match:
+                    original = match.get(field) or next(
+                        (match[f] for f in _SECRET_FIELDS if isinstance(match.get(f), str) and match[f]), None)
+                if original:
+                    entry[field] = original
+                else:
+                    entry.pop(field)
+        out.append(entry)
+    return out
+
+
 @router.get("/api/credential-pool")
 async def get_credential_pool(profile: Optional[str] = None):
     from hermes_cli.auth import read_credential_pool
 
     with _profile_scope(profile):
         pool = read_credential_pool(None) or {}
-    return {"pool": pool}
+    return {"pool": mask_pool(pool)}
 
 
 @router.put("/api/credential-pool")
 async def put_credential_pool(body: dict, profile: Optional[str] = None):
-    from hermes_cli.auth import write_credential_pool
+    from hermes_cli.auth import read_credential_pool, write_credential_pool
 
     provider = str(body.get("provider") or "").strip()
     entries = body.get("entries")
     if not provider or not isinstance(entries, list):
         raise HTTPException(status_code=400, detail="provider and entries are required")
     with _profile_scope(profile):
-        write_credential_pool(provider, entries)
+        existing = (read_credential_pool(None) or {}).get(provider) or []
+        write_credential_pool(provider, unmask_entries(entries, existing))
     return {"ok": True}
 
 
