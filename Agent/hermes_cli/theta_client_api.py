@@ -155,20 +155,32 @@ async def upload_attachment(body: dict):
 # ---------------------------------------------------------------------------
 
 @router.patch("/api/sessions/{session_id}")
-async def rename_session(session_id: str, body: dict):
+async def update_session(session_id: str, body: dict):
+    """Rename, pin/unpin or archive/unarchive a conversation."""
+    from gateway import agent_roster
     from hermes_state import SessionDB
 
+    has_title = "title" in body
     title = " ".join(str(body.get("title") or "").split())[:200]
-    if not title:
-        raise HTTPException(status_code=400, detail="title is required")
+    if has_title and not title:
+        raise HTTPException(status_code=400, detail="title must not be empty")
+    if not has_title and "pinned" not in body and "archived" not in body:
+        raise HTTPException(status_code=400, detail="nothing to update")
     db = SessionDB()
     try:
         sid = db.resolve_session_id(session_id) or session_id
-        if not db.set_session_title(sid, title):
+        if db.get_session(sid) is None:
             raise HTTPException(status_code=404, detail="Session not found")
-        return {"ok": True, "session_id": sid, "title": title}
+        result: dict = {"ok": True, "session_id": sid}
+        if has_title:
+            db.set_session_title(sid, title)
+            result["title"] = title
     finally:
         db.close()
+    if "pinned" in body or "archived" in body:
+        result.update(agent_roster.set_session_flags(
+            sid, pinned=body.get("pinned"), archived=body.get("archived")))
+    return result
 
 
 # ---------------------------------------------------------------------------

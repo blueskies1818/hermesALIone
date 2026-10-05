@@ -8823,3 +8823,95 @@ body {
 .agent-file-modal-body { overflow: auto; padding: 16px 20px; color: var(--text-primary); }
 .agent-file-modal-image { display: block; max-width: 100%; margin: 0 auto; }
 .agent-file-modal-text { max-height: none; }
+
+/* ===== Theta: conversation management ===== */
+.sessions-view-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sessions-segment {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+.sessions-segment-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sessions-segment-btn.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.sessions-archive-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-bright);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sessions-archive-toggle.active,
+.sessions-archive-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.sessions-card-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  background: var(--bg-primary);
+  border-radius: 6px;
+}
+.sessions-card-wrapper:hover .sessions-card-actions,
+.sessions-card-actions:focus-within { opacity: 1; }
+.sessions-card-action {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.sessions-card-action:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sessions-card-action--danger,
+.sessions-card-action--danger:hover { color: var(--error); background: var(--error-bg); }
+.sessions-pin-mark { color: var(--accent-text); margin-right: 4px; vertical-align: -1px; }
+.sessions-tag--project,
+.sessions-tag--agent { display: inline-flex; align-items: center; gap: 3px; }
+.sessions-tag--agent { text-transform: capitalize; }
+.sessions-rename-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border-focus);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}

@@ -357,6 +357,17 @@ const hermesAPI = {
     }>
   > => ipcRenderer.invoke("list-sessions", limit, offset),
 
+  listConversations: (limit?: number, archived?: boolean): Promise<
+    {
+      id: string; source: string; startedAt: number; endedAt: number | null;
+      messageCount: number; model: string; title: string | null; preview: string;
+      pinned?: boolean; archived?: boolean; project?: string | null; agent?: string;
+    }[]
+  > => ipcRenderer.invoke("list-conversations", limit, archived),
+  updateSession: (
+    sessionId: string,
+    changes: { title?: string; pinned?: boolean; archived?: boolean },
+  ): Promise<boolean> => ipcRenderer.invoke("update-session", sessionId, changes),
   filesInfo: (
     paths: string[],
   ): Promise<{ path: string; resolved: string; name: string; size: number; mime: string }[]> =>

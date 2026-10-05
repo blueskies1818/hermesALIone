@@ -15,6 +15,11 @@ export interface SessionSummary {
   model: string;
   title: string | null;
   preview: string;
+  /** Theta: conversation management */
+  pinned?: boolean;
+  archived?: boolean;
+  project?: string | null;
+  agent?: string;
 }
 
 export interface SessionMessage {
@@ -105,9 +110,10 @@ export interface SearchResult {
 export async function listSessions(
   limit = 30,
   offset = 0,
+  archived = false,
 ): Promise<SessionSummary[]> {
   const { ok, data } = await apiFetch("/api/sessions", {
-    params: { limit: String(limit), offset: String(offset) },
+    params: { limit: String(limit), offset: String(offset), archived: String(archived) },
   });
   if (!ok) return [];
   const sessions = (data as Record<string, unknown>)?.sessions as Array<Record<string, unknown>> | undefined;
@@ -121,7 +127,23 @@ export async function listSessions(
     model: String(s.model || ""),
     title: s.title ? String(s.title) : null,
     preview: "",
+    pinned: Boolean(s.pinned),
+    archived: Boolean(s.archived),
+    project: s.project ? String(s.project) : null,
+    agent: s.agent ? String(s.agent) : "default",
   }));
+}
+
+/** Theta: rename / pin / archive a conversation on the server. */
+export async function updateSession(
+  sessionId: string,
+  changes: { title?: string; pinned?: boolean; archived?: boolean },
+): Promise<boolean> {
+  const { ok } = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    body: changes,
+  });
+  return ok;
 }
 
 export async function searchSessions(

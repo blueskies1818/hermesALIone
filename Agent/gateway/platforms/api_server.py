@@ -3281,11 +3281,27 @@ class APIServerAdapter(BasePlatformAdapter):
             _eff_sid = getattr(agent, "session_id", session_id)
             if isinstance(_eff_sid, str) and _eff_sid:
                 result["session_id"] = _eff_sid
+            # Theta: name new conversations (background, first exchanges only).
+            try:
+                from agent.title_generator import maybe_auto_title
+
+                if isinstance(title_user_message, str) and result.get("final_response"):
+                    maybe_auto_title(
+                        self._ensure_session_db(),
+                        result.get("session_id") or session_id,
+                        title_user_message,
+                        result["final_response"],
+                        result.get("messages") or [],
+                        failure_callback=lambda task, exc: logger.debug("auto-title failed: %s", exc),
+                    )
+            except Exception:
+                pass
             return result, usage
 
         # Theta: worker updates queued for this session that nobody has
         # heard yet go in front of the user's message, so the agent can
         # mention them before answering.
+        title_user_message = user_message  # before any inbox text is prepended
         inbox_ids: list = []
         if include_inbox and session_id and isinstance(user_message, str):
             try:

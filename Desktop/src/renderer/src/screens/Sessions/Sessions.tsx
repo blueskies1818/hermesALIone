@@ -1,15 +1,22 @@
 import { useEffect, useState, useRef, useCallback, memo } from "react";
 import { Plus, Search, X, ChatBubble, Trash } from "../../assets/icons";
+import { Archive, ArchiveRestore, Bot, Folder, Pencil, Pin, PinOff } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
 
 interface CachedSession {
   id: string;
-  title: string;
+  title: string | null;
   startedAt: number;
   source: string;
   messageCount: number;
   model: string;
+  pinned?: boolean;
+  archived?: boolean;
+  project?: string | null;
+  agent?: string;
 }
+
+type GroupMode = "date" | "project";
 
 interface SearchResult {
   sessionId: string;
@@ -112,53 +119,108 @@ const SessionCard = memo(function SessionCard({
   showFullDate,
   onClick,
   onDelete,
+  onUpdate,
 }: {
   session: CachedSession;
   isActive: boolean;
   showFullDate: boolean;
   onClick: () => void;
   onDelete: (sessionId: string) => void;
+  onUpdate: (sessionId: string, changes: { title?: string; pinned?: boolean; archived?: boolean }) => void;
 }) {
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const title = session.title || "New conversation";
+
+  const commitRename = (): void => {
+    const next = draft.trim();
+    setRenaming(false);
+    if (next && next !== session.title) onUpdate(session.id, { title: next });
+  };
+
   return (
     <div className="sessions-card-wrapper">
-      <button
-        className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}
-        onClick={onClick}
-      >
-        <div className="sessions-card-main">
-          <span className="sessions-card-title">
-            {session.title || "New conversation"}
-          </span>
-          <span className="sessions-card-time">
-            {showFullDate
-              ? formatFullDate(session.startedAt)
-              : formatTime(session.startedAt)}
-          </span>
+      {renaming ? (
+        <div className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}>
+          <input
+            className="sessions-rename-input"
+            value={draft}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") setRenaming(false);
+            }}
+          />
         </div>
-        <div className="sessions-card-tags">
-          <span className="sessions-tag sessions-tag--source">
-            {session.source}
-          </span>
-          <span className="sessions-tag">
-            {session.messageCount} msg{session.messageCount !== 1 ? "s" : ""}
-          </span>
-          {session.model && (
-            <span className="sessions-tag sessions-tag--model">
-              {formatModel(session.model)}
+      ) : (
+        <button
+          className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}
+          onClick={onClick}
+          onDoubleClick={() => { setDraft(session.title || ""); setRenaming(true); }}
+        >
+          <div className="sessions-card-main">
+            <span className="sessions-card-title">
+              {session.pinned && <Pin size={11} className="sessions-pin-mark" />}
+              {title}
             </span>
-          )}
-        </div>
-      </button>
-      <button
-        className="sessions-card-delete"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete(session.id);
-        }}
-        title="Delete session"
-      >
-        <Trash size={13} />
-      </button>
+            <span className="sessions-card-time">
+              {showFullDate
+                ? formatFullDate(session.startedAt)
+                : formatTime(session.startedAt)}
+            </span>
+          </div>
+          <div className="sessions-card-tags">
+            {session.project && (
+              <span className="sessions-tag sessions-tag--project">
+                <Folder size={10} /> {session.project}
+              </span>
+            )}
+            {session.agent && session.agent !== "default" && (
+              <span className="sessions-tag sessions-tag--agent">
+                <Bot size={10} /> {session.agent}
+              </span>
+            )}
+            <span className="sessions-tag">
+              {session.messageCount} msg{session.messageCount !== 1 ? "s" : ""}
+            </span>
+            {session.model && (
+              <span className="sessions-tag sessions-tag--model">
+                {formatModel(session.model)}
+              </span>
+            )}
+          </div>
+        </button>
+      )}
+      <div className="sessions-card-actions">
+        <button
+          className="sessions-card-action"
+          title="Rename"
+          onClick={(e) => { e.stopPropagation(); setDraft(session.title || ""); setRenaming(true); }}
+        ><Pencil size={13} /></button>
+        <button
+          className="sessions-card-action"
+          title={session.pinned ? "Unpin" : "Pin"}
+          onClick={(e) => { e.stopPropagation(); onUpdate(session.id, { pinned: !session.pinned }); }}
+        >{session.pinned ? <PinOff size={13} /> : <Pin size={13} />}</button>
+        <button
+          className="sessions-card-action"
+          title={session.archived ? "Unarchive" : "Archive"}
+          onClick={(e) => { e.stopPropagation(); onUpdate(session.id, { archived: !session.archived }); }}
+        >{session.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}</button>
+        <button
+          className={`sessions-card-action ${confirmDelete ? "sessions-card-action--danger" : ""}`}
+          title={confirmDelete ? "Click again to delete" : "Delete"}
+          onMouseLeave={() => setConfirmDelete(false)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirmDelete) onDelete(session.id);
+            else setConfirmDelete(true);
+          }}
+        ><Trash size={13} /></button>
+      </div>
     </div>
   );
 });
@@ -173,6 +235,8 @@ function Sessions({
   const { t } = useI18n();
   const [sessions, setSessions] = useState<CachedSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
+  const [groupMode, setGroupMode] = useState<GroupMode>("date");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -181,15 +245,27 @@ function Sessions({
 
   const loadSessions = useCallback(async (): Promise<void> => {
     setLoading(true);
-    const cached = await window.hermesAPI.listCachedSessions(50);
-    if (cached.length > 0) {
-      setSessions(cached);
-      setLoading(false);
-    }
-    const synced = await window.hermesAPI.syncSessionCache();
-    setSessions(synced.slice(0, 50));
+    const list = await window.hermesAPI.listConversations(100, showArchived);
+    setSessions(list);
     setLoading(false);
-  }, []);
+  }, [showArchived]);
+
+  const handleUpdate = useCallback(
+    async (
+      sessionId: string,
+      changes: { title?: string; pinned?: boolean; archived?: boolean },
+    ) => {
+      // Optimistic: archiving moves it out of the current view.
+      setSessions((prev) =>
+        prev
+          .map((s) => (s.id === sessionId ? { ...s, ...changes } : s))
+          .filter((s) => changes.archived === undefined || s.id !== sessionId),
+      );
+      const ok = await window.hermesAPI.updateSession(sessionId, changes);
+      if (!ok) loadSessions();
+    },
+    [loadSessions],
+  );
 
   const handleDelete = useCallback(
     async (sessionId: string) => {
@@ -236,7 +312,23 @@ function Sessions({
   }, [searchQuery]);
 
   const isShowingSearch = searchQuery.trim().length > 0;
-  const grouped = groupSessions(sessions);
+  const pinned = sessions.filter((s) => s.pinned);
+  const unpinned = sessions.filter((s) => !s.pinned);
+  const grouped: { label: string; title?: string; sessions: CachedSession[] }[] = [];
+  if (pinned.length > 0) grouped.push({ label: "pinned", title: "Pinned", sessions: pinned });
+  if (groupMode === "project") {
+    const byProject = new Map<string, CachedSession[]>();
+    for (const s of unpinned) {
+      const key = s.project || "No project";
+      byProject.set(key, [...(byProject.get(key) ?? []), s]);
+    }
+    for (const [project, list] of [...byProject.entries()].sort((a, b) =>
+      a[0] === "No project" ? 1 : b[0] === "No project" ? -1 : a[0].localeCompare(b[0]))) {
+      grouped.push({ label: `project:${project}`, title: project, sessions: list });
+    }
+  } else {
+    grouped.push(...groupSessions(unpinned));
+  }
 
   return (
     <div className="sessions-container">
@@ -247,6 +339,24 @@ function Sessions({
           <button className="btn btn-primary " onClick={onNewChat}>
             <Plus size={14} />
             {t("sessions.newChat")}
+          </button>
+        </div>
+        <div className="sessions-view-controls">
+          <div className="sessions-segment">
+            <button
+              className={`sessions-segment-btn ${groupMode === "date" ? "active" : ""}`}
+              onClick={() => setGroupMode("date")}
+            >Date</button>
+            <button
+              className={`sessions-segment-btn ${groupMode === "project" ? "active" : ""}`}
+              onClick={() => setGroupMode("project")}
+            >Project</button>
+          </div>
+          <button
+            className={`sessions-archive-toggle ${showArchived ? "active" : ""}`}
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            <Archive size={13} /> {showArchived ? "Showing archived" : "Show archived"}
           </button>
         </div>
         <div className="sessions-searchbar">
@@ -353,7 +463,7 @@ function Sessions({
           {grouped.map((group) => (
             <div key={group.label} className="sessions-group">
               <div className="sessions-group-label">
-                {t(`sessions.${group.label}`)}
+                {group.title ?? t(`sessions.${group.label}`)}
               </div>
               {group.sessions.map((s) => (
                 <SessionCard
@@ -365,6 +475,7 @@ function Sessions({
                   }
                   onClick={() => onResumeSession(s.id)}
                   onDelete={handleDelete}
+                  onUpdate={handleUpdate}
                 />
               ))}
             </div>

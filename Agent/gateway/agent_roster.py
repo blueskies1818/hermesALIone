@@ -251,3 +251,63 @@ def _read_config(home: Path) -> dict:
 
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+# ---------------------------------------------------------------------------
+# Conversation flags (pin / archive) for the app's conversation list
+# ---------------------------------------------------------------------------
+
+def _ensure_flag_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS session_flags ("
+        " session_id TEXT PRIMARY KEY, pinned INTEGER NOT NULL DEFAULT 0,"
+        " archived INTEGER NOT NULL DEFAULT 0, updated_at REAL NOT NULL)"
+    )
+
+
+def set_session_flags(session_id: str, pinned: Optional[bool] = None,
+                      archived: Optional[bool] = None) -> dict:
+    with _db() as conn:
+        _ensure_flag_table(conn)
+        row = conn.execute(
+            "SELECT pinned, archived FROM session_flags WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        cur_pinned, cur_archived = (bool(row[0]), bool(row[1])) if row else (False, False)
+        new = {
+            "pinned": cur_pinned if pinned is None else bool(pinned),
+            "archived": cur_archived if archived is None else bool(archived),
+        }
+        conn.execute(
+            "INSERT OR REPLACE INTO session_flags (session_id, pinned, archived, updated_at)"
+            " VALUES (?, ?, ?, ?)",
+            (session_id, int(new["pinned"]), int(new["archived"]), time.time()),
+        )
+    return new
+
+
+def session_info_many(session_ids: list) -> dict:
+    """{session_id: {pinned, archived, project, agent}} for the given ids."""
+    out = {sid: {"pinned": False, "archived": False, "project": None, "agent": DEFAULT_AGENT}
+           for sid in session_ids}
+    if not session_ids:
+        return out
+    marks = ",".join("?" for _ in session_ids)
+    with _db() as conn:
+        _ensure_flag_table(conn)
+        _ensure_project_table(conn)
+        for sid, pinned, archived in conn.execute(
+            f"SELECT session_id, pinned, archived FROM session_flags WHERE session_id IN ({marks})",
+            session_ids,
+        ):
+            out[sid].update(pinned=bool(pinned), archived=bool(archived))
+        for sid, project in conn.execute(
+            f"SELECT session_id, project FROM session_projects WHERE session_id IN ({marks})",
+            session_ids,
+        ):
+            out[sid]["project"] = project
+        for sid, agent in conn.execute(
+            f"SELECT session_id, agent FROM session_agents WHERE session_id IN ({marks})",
+            session_ids,
+        ):
+            out[sid]["agent"] = agent
+    return out

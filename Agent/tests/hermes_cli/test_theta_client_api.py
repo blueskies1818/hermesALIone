@@ -143,3 +143,46 @@ class TestSharedFiles:
         ws.mkdir(parents=True, exist_ok=True)
         (self._root() / "config.yaml").write_text("model: x", encoding="utf-8")
         assert api.resolve_shared_file(str(ws / ".." / "config.yaml")) is None
+
+
+class TestConversationManagement:
+    def _make(self, sid):
+        from hermes_state import SessionDB
+
+        db = SessionDB()
+        db.create_session(sid, source="api_server")
+        db.append_message(sid, "user", "hello")
+        db.close()
+
+    def test_rename_pin_archive(self):
+        from gateway import agent_roster
+
+        self._make("cm-1")
+        out = asyncio.run(api.update_session("cm-1", {"title": "  Garden   plan ", "pinned": True}))
+        assert out["title"] == "Garden plan" and out["pinned"] is True and out["archived"] is False
+        out = asyncio.run(api.update_session("cm-1", {"archived": True}))
+        assert out["pinned"] is True and out["archived"] is True
+        info = agent_roster.session_info_many(["cm-1", "unknown"])
+        assert info["cm-1"]["pinned"] and info["cm-1"]["archived"]
+        assert info["unknown"] == {"pinned": False, "archived": False, "project": None, "agent": "default"}
+
+    def test_update_validation(self):
+        self._make("cm-2")
+        with pytest.raises(api.HTTPException):
+            asyncio.run(api.update_session("cm-2", {}))
+        with pytest.raises(api.HTTPException):
+            asyncio.run(api.update_session("cm-2", {"title": "   "}))
+        with pytest.raises(api.HTTPException) as exc:
+            asyncio.run(api.update_session("missing", {"pinned": True}))
+        assert exc.value.status_code == 404
+
+    def test_list_hides_archived_unless_asked(self):
+        from hermes_cli import web_server
+
+        self._make("cm-3")
+        self._make("cm-4")
+        asyncio.run(api.update_session("cm-4", {"archived": True}))
+        active = {s["id"] for s in asyncio.run(web_server.get_sessions(limit=50))["sessions"]}
+        archived = {s["id"] for s in asyncio.run(web_server.get_sessions(limit=50, archived=True))["sessions"]}
+        assert "cm-3" in active and "cm-4" not in active
+        assert archived == {"cm-4"}

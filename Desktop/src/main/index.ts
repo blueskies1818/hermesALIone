@@ -70,6 +70,7 @@ import {
   getSessionMessages,
   searchSessions,
   deleteSession,
+  updateSession,
 } from "./sessions";
 import {
   syncSessionCache,
@@ -962,6 +963,16 @@ function setupIPC(): void {
     await writeFile(choice.filePath, Buffer.from(file.data, "base64"));
     return { ok: true, savedTo: choice.filePath };
   });
+
+  // Theta: conversation list with management flags
+  ipcMain.handle("list-conversations", (_event, limit?: number, archived?: boolean) =>
+    listSessions(limit ?? 100, 0, Boolean(archived)),
+  );
+  ipcMain.handle(
+    "update-session",
+    (_event, sessionId: string, changes: { title?: string; pinned?: boolean; archived?: boolean }) =>
+      updateSession(sessionId, changes),
+  );
 
   // Theta: drop a user message and everything after it (edit / regenerate)
   ipcMain.handle("rewind-session", async (_event, sessionId: string, userTurn: number) => {

@@ -853,19 +853,24 @@ async def get_action_status(name: str, lines: int = 200):
 
 
 @app.get("/api/sessions")
-async def get_sessions(limit: int = 20, offset: int = 0):
+async def get_sessions(limit: int = 20, offset: int = 0, archived: bool = False):
     try:
         from hermes_state import SessionDB
+        from gateway.agent_roster import session_info_many
         db = SessionDB()
         try:
             sessions = db.list_sessions_rich(limit=limit, offset=offset)
             total = db.session_count()
             now = time.time()
+            # Theta: pin/archive flags, project and agent for the app's list.
+            info = session_info_many([s.get("id") for s in sessions if s.get("id")])
             for s in sessions:
                 s["is_active"] = (
                     s.get("ended_at") is None
                     and (now - s.get("last_active", s.get("started_at", 0))) < 300
                 )
+                s.update(info.get(s.get("id"), {}))
+            sessions = [s for s in sessions if bool(s.get("archived")) == archived]
             return {"sessions": sessions, "total": total, "limit": limit, "offset": offset}
         finally:
             db.close()
