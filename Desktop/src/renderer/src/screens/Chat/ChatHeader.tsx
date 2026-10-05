@@ -1,5 +1,5 @@
-import { memo } from "react";
-import { Trash2 as Trash, Plus, Zap, Bot, Folder } from "lucide-react";
+import { memo, useEffect, useRef, useState } from "react";
+import { Trash2 as Trash, Plus, Zap, Bot, Folder, Search, Download } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
 import type { UsageState } from "./types";
 
@@ -18,6 +18,35 @@ interface ChatHeaderProps {
   onToggleFast: () => void;
   onNewChat?: () => void;
   onClear: () => void;
+  onFind?: () => void;
+  onExport?: (kind: "md" | "pdf") => void;
+}
+
+function ExportMenu({ onExport }: { onExport: (kind: "md" | "pdf") => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+  const pick = (kind: "md" | "pdf"): void => { setOpen(false); onExport(kind); };
+  return (
+    <div className="chat-export" ref={ref}>
+      <button className="btn-ghost chat-clear-btn" onClick={() => setOpen((o) => !o)} title="Export conversation">
+        <Download size={16} />
+      </button>
+      {open && (
+        <div className="chat-export-menu">
+          <button onClick={() => pick("md")}>Markdown (.md)</button>
+          <button onClick={() => pick("pdf")}>PDF (.pdf)</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function UsageBadge({ usage }: { usage: UsageState }): React.JSX.Element {
@@ -45,6 +74,8 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleFast,
   onNewChat,
   onClear,
+  onFind,
+  onExport,
 }: ChatHeaderProps): React.JSX.Element {
   const { t } = useI18n();
 
@@ -90,6 +121,12 @@ export const ChatHeader = memo(function ChatHeader({
             </span>
           </div>
         </div>
+        {hasMessages && onFind && (
+          <button className="btn-ghost chat-clear-btn" onClick={onFind} title="Find in conversation (Ctrl+F)">
+            <Search size={16} />
+          </button>
+        )}
+        {hasMessages && onExport && <ExportMenu onExport={onExport} />}
         {onNewChat && (
           <button
             className="btn-ghost chat-clear-btn"

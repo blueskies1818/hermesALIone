@@ -37,6 +37,8 @@ interface ChatInputProps {
   onSubmit: (text: string, attachments: Attachment[]) => void;
   onQuickAsk: (text: string, attachments: Attachment[]) => void;
   onAbort: () => void;
+  /** Theta: Up in an empty input edits the last message; true if it did. */
+  onEditLast?: () => boolean;
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
@@ -49,6 +51,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       onSubmit,
       onQuickAsk,
       onAbort,
+      onEditLast,
     },
     ref,
   ): React.JSX.Element {
@@ -302,6 +305,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           setSlashMenuOpen(false);
           return;
         }
+      }
+
+      // Theta: Up in an empty input edits your last message
+      if (
+        e.key === "ArrowUp" && !e.ctrlKey && !input && !slashMenuOpen &&
+        !history.isNavigating() && onEditLast?.()
+      ) {
+        e.preventDefault();
+        return;
       }
 
       // History navigation: ArrowUp/Down when not in a multiline draft (or already navigating)

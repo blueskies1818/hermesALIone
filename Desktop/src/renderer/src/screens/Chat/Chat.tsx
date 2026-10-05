@@ -3,6 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatHeader, type SessionAgentInfo } from "./ChatHeader";
 import { CanvasContext, CanvasPanel, type CanvasFile } from "./Canvas";
+import { FindBar } from "./FindBar";
+import { isEditable } from "./MessageRow";
+import { conversationMarkdown, conversationTitle, exportFileName } from "./exportChat";
 import { ChatEmptyState } from "./ChatEmptyState";
 import { MessageList } from "./MessageList";
 import { ModelPicker } from "./ModelPicker";
@@ -83,6 +86,37 @@ function Chat({
     }
   }, [messages]);
 
+  // Ctrl+F → find in this conversation (only while the chat tab is shown)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f" && containerRef.current?.offsetParent) {
+        e.preventDefault();
+        setFindOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [containerRef]);
+
+  const handleEditLast = useCallback((): boolean => {
+    if (isLoading || !messages.some(isEditable)) return false;
+    setEditLastSignal((n) => n + 1);
+    return true;
+  }, [isLoading, messages]);
+
+  const handleExport = useCallback(
+    async (kind: "md" | "pdf") => {
+      const title = conversationTitle(messages);
+      const result = await window.hermesAPI.exportConversation(
+        kind,
+        exportFileName(title, kind),
+        conversationMarkdown(messages, title),
+      );
+      if (!result.ok && !result.canceled) window.alert(`Export failed: ${result.error || "unknown error"}`);
+    },
+    [messages],
+  );
+
   // Cmd/Ctrl+N → new chat
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -137,6 +171,9 @@ function Chat({
 
   // Theta: canvas side panel for files the agent wrote
   const [canvasFile, setCanvasFile] = useState<CanvasFile | null>(null);
+  // Theta: find in conversation (Ctrl+F) and Up-to-edit-last
+  const [findOpen, setFindOpen] = useState(false);
+  const [editLastSignal, setEditLastSignal] = useState(0);
 
   // Theta: show which agent this conversation is talking to (and its
   // project). Refreshed after each reply and right after an agent switch.
@@ -240,7 +277,12 @@ function Chat({
         onToggleFast={toggleFastMode}
         onNewChat={onNewChat}
         onClear={handleClear}
+        onFind={() => setFindOpen(true)}
+        onExport={handleExport}
       />
+      {findOpen && (
+        <FindBar containerRef={containerRef} contentKey={messages} onClose={() => setFindOpen(false)} />
+      )}
 
       <div className="chat-messages" ref={containerRef}>
         {messages.length === 0 ? (
@@ -255,6 +297,7 @@ function Chat({
             onDeny={actions.handleDeny}
             onRegenerate={actions.handleRegenerate}
             onEdit={actions.handleEdit}
+            editLastSignal={editLastSignal}
           />
         )}
         <div ref={bottomRef} />
@@ -275,6 +318,7 @@ function Chat({
           onSubmit={actions.handleSend}
           onQuickAsk={actions.handleQuickAsk}
           onAbort={actions.handleAbort}
+          onEditLast={handleEditLast}
         />
         <ModelPicker
           currentModel={modelConfig.currentModel}

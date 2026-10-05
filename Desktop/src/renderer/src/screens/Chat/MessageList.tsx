@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { HermesAvatar, MessageRow } from "./MessageRow";
+import { HermesAvatar, MessageRow, isEditable } from "./MessageRow";
 import type { ChatMessage } from "./types";
 
 interface MessageListProps {
@@ -11,6 +11,7 @@ interface MessageListProps {
   onDeny: () => void;
   onRegenerate?: () => void;
   onEdit?: (messageId: string, text: string) => void;
+  editLastSignal?: number;
 }
 
 function TypingIndicator({
@@ -45,6 +46,7 @@ export const MessageList = memo(function MessageList({
   onDeny,
   onRegenerate,
   onEdit,
+  editLastSignal,
 }: MessageListProps): React.JSX.Element {
   const visibleMessages = useMemo(
     () =>
@@ -52,6 +54,11 @@ export const MessageList = memo(function MessageList({
         (m) => (m.content || "").trim() || (m.steps?.length ?? 0) > 0 || (m.reasoning || "").trim(),
       ),
     [messages],
+  );
+
+  const lastEditableId = useMemo(
+    () => [...visibleMessages].reverse().find(isEditable)?.id,
+    [visibleMessages],
   );
 
   const lastMessageIsAgent =
@@ -69,6 +76,7 @@ export const MessageList = memo(function MessageList({
           onDeny={onDeny}
           onRegenerate={onRegenerate}
           onEdit={onEdit}
+          editSignal={msg.id === lastEditableId ? editLastSignal : undefined}
         />
       ))}
 

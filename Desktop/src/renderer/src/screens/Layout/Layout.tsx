@@ -101,6 +101,20 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
     setView(v);
   }, []);
 
+  // Theta: Ctrl+K → search conversations
+  const [sessionSearchSignal, setSessionSearchSignal] = useState(0);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        goTo("sessions");
+        setSessionSearchSignal((n) => n + 1);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goTo]);
+
   // Re-check connection mode on tab switch (picks up Settings changes)
   useEffect(() => {
     window.hermesAPI
@@ -391,6 +405,7 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
               onDeleteSession={handleDeleteSession}
               currentSessionId={currentSessionId}
               visible={view === "sessions"}
+              focusSearchSignal={sessionSearchSignal}
             />
           </div>
         )}

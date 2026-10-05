@@ -194,6 +194,12 @@ const hermesAPI = {
   ): Promise<{ success: boolean; transcript: string; error?: string; provider?: string }> =>
     ipcRenderer.invoke("send-audio", base64Audio),
 
+  exportConversation: (
+    kind: "md" | "pdf",
+    fileName: string,
+    markdown: string,
+  ): Promise<{ ok: boolean; canceled?: boolean; savedTo?: string; error?: string }> =>
+    ipcRenderer.invoke("export-conversation", kind, fileName, markdown),
   speakText: (text: string): Promise<{ success: boolean; chunks?: string[]; error?: string }> =>
     ipcRenderer.invoke("speak-text", text),
 

@@ -39,6 +39,7 @@ import {
   unsubscribeSessionEvents,
 } from "./session-events";
 import { readFile, writeFile } from "fs/promises";
+import { exportConversation } from "./exportConversation";
 import {
   uploadAttachment,
   discoverProviderModelsViaServer,
@@ -991,6 +992,22 @@ function setupIPC(): void {
     await writeFile(choice.filePath, Buffer.from(file.data, "base64"));
     return { ok: true, savedTo: choice.filePath };
   });
+
+  // Theta: export a conversation as Markdown or PDF (save dialog)
+  ipcMain.handle(
+    "export-conversation",
+    (event, kind: "md" | "pdf", fileName: string, markdown: string) => {
+      if ((kind !== "md" && kind !== "pdf") || typeof markdown !== "string") {
+        return { ok: false, error: "Invalid export request" };
+      }
+      return exportConversation(
+        BrowserWindow.fromWebContents(event.sender),
+        kind,
+        String(fileName || `conversation.${kind}`),
+        markdown,
+      );
+    },
+  );
 
   // Theta: conversation list with management flags
   ipcMain.handle("list-conversations", (_event, limit?: number, archived?: boolean) =>

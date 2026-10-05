@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Check, Copy, Loader2, Pencil, RefreshCw, Square, Volume2 } from "lucide-react";
 import { readAloud, stopReading, useReadAloud } from "./readAloud";
 import icon from "../../assets/icon.png";
@@ -32,10 +32,12 @@ interface MessageRowProps {
   onDeny: () => void;
   onRegenerate?: () => void;
   onEdit?: (messageId: string, text: string) => void;
+  /** Theta: bumping this opens the inline editor (Up in an empty input). */
+  editSignal?: number;
 }
 
 /** Messages the user can edit and resend (not slash-command echoes). */
-function isEditable(msg: ChatMessage): boolean {
+export function isEditable(msg: ChatMessage): boolean {
   return (
     msg.role === "user" &&
     msg.id.startsWith("user-") &&
@@ -52,6 +54,7 @@ export const MessageRow = memo(function MessageRow({
   onDeny,
   onRegenerate,
   onEdit,
+  editSignal,
 }: MessageRowProps): React.JSX.Element {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -74,6 +77,10 @@ export const MessageRow = memo(function MessageRow({
   };
   const showRegenerate = msg.role === "agent" && isLast && !isLoading && !!onRegenerate;
   const showEdit = isEditable(msg) && !isLoading && !!onEdit;
+  useEffect(() => {
+    if (editSignal && showEdit) { setDraft(msg.content); setEditing(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editSignal]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(
     null,
   );

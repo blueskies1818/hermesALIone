@@ -34,6 +34,8 @@ interface SessionsProps {
   onDeleteSession: (sessionId: string) => void;
   currentSessionId: string | null;
   visible: boolean;
+  /** Theta: bumping this focuses the search box (Ctrl+K). */
+  focusSearchSignal?: number;
 }
 
 function formatTime(ts: number): string {
@@ -231,6 +233,7 @@ function Sessions({
   onDeleteSession,
   currentSessionId,
   visible,
+  focusSearchSignal,
 }: SessionsProps): React.JSX.Element {
   const { t } = useI18n();
   const [sessions, setSessions] = useState<CachedSession[]>([]);
@@ -282,6 +285,15 @@ function Sessions({
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
+
+  useEffect(() => {
+    if (!focusSearchSignal) return;
+    const id = requestAnimationFrame(() => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [focusSearchSignal]);
 
   // Refresh sessions whenever the Sessions view becomes visible.
   // This ensures new sessions created in the Chat view (via "+")
