@@ -357,6 +357,18 @@ const hermesAPI = {
     }>
   > => ipcRenderer.invoke("list-sessions", limit, offset),
 
+  filesInfo: (
+    paths: string[],
+  ): Promise<{ path: string; resolved: string; name: string; size: number; mime: string }[]> =>
+    ipcRenderer.invoke("files-info", paths),
+  fileContent: (
+    path: string,
+  ): Promise<{ name: string; mime: string; size: number; data: string } | null> =>
+    ipcRenderer.invoke("file-content", path),
+  saveFile: (
+    path: string,
+  ): Promise<{ ok: boolean; savedTo?: string; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke("save-file", path),
   rewindSession: (sessionId: string, userTurn: number): Promise<boolean> =>
     ipcRenderer.invoke("rewind-session", sessionId, userTurn),
   getSessionAgent: (

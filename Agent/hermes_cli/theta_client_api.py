@@ -347,3 +347,84 @@ async def rewind_session(session_id: str, body: dict):
         return {"ok": True, "session_id": sid, "removed": len(messages) - cut}
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Files the agent produced (workspace + vault only)
+# ---------------------------------------------------------------------------
+
+MAX_FILE_FETCH_BYTES = 25 * 1024 * 1024
+
+
+def _shared_roots() -> list[Path]:
+    from hermes_constants import get_default_hermes_root
+
+    root = get_default_hermes_root()
+    return [(root / "workspace").resolve(), (root / "vault").resolve()]
+
+
+def resolve_shared_file(path: str) -> Optional[Path]:
+    """The file at ``path`` if it is inside the workspace or vault, else None."""
+    from agent.theta_guard import is_secret_file
+
+    try:
+        resolved = Path(str(path or "")).expanduser().resolve()
+    except (OSError, ValueError):
+        return None
+    if not resolved.is_file() or is_secret_file(str(resolved)):
+        return None
+    for root in _shared_roots():
+        try:
+            resolved.relative_to(root)
+            return resolved
+        except ValueError:
+            continue
+    return None
+
+
+def _mime_for(path: Path) -> str:
+    import mimetypes
+
+    mime, _ = mimetypes.guess_type(path.name)
+    if mime:
+        return mime
+    if path.suffix.lower() in {".md", ".markdown"}:
+        return "text/markdown"
+    return "application/octet-stream"
+
+
+@router.post("/api/files/info")
+async def files_info(body: dict):
+    """Describe the shareable files among ``paths`` (others are omitted)."""
+    paths = body.get("paths") or []
+    if not isinstance(paths, list):
+        raise HTTPException(status_code=400, detail="paths must be a list")
+    out = []
+    for raw in paths[:50]:
+        resolved = resolve_shared_file(str(raw))
+        if resolved is None:
+            continue
+        out.append({
+            "path": str(raw),
+            "resolved": str(resolved),
+            "name": resolved.name,
+            "size": resolved.stat().st_size,
+            "mime": _mime_for(resolved),
+        })
+    return {"files": out}
+
+
+@router.get("/api/files/content")
+async def file_content(path: str):
+    resolved = resolve_shared_file(path)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="File not found in the workspace or vault")
+    size = resolved.stat().st_size
+    if size > MAX_FILE_FETCH_BYTES:
+        raise HTTPException(status_code=413, detail="File too large to fetch (max 25 MB)")
+    return {
+        "name": resolved.name,
+        "mime": _mime_for(resolved),
+        "size": size,
+        "data": base64.b64encode(resolved.read_bytes()).decode("ascii"),
+    }

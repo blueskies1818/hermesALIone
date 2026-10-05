@@ -38,7 +38,7 @@ import {
   subscribeSessionEvents,
   unsubscribeSessionEvents,
 } from "./session-events";
-import { readFile } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
 import {
   uploadAttachment,
   discoverProviderModelsViaServer,
@@ -938,6 +938,29 @@ function setupIPC(): void {
     if (conn.mode === "ssh" && conn.ssh)
       return sshListSessions(conn.ssh, limit, offset);
     return listSessions(limit, offset);
+  });
+
+  // Theta: files the agent produced (served from the server's workspace/vault)
+  ipcMain.handle("files-info", async (_event, paths: string[]) => {
+    if (!Array.isArray(paths) || paths.length === 0) return [];
+    const { ok, data } = await apiFetch("/api/files/info", { method: "POST", body: { paths } });
+    return ok ? ((data as { files?: unknown[] })?.files ?? []) : [];
+  });
+  ipcMain.handle("file-content", async (_event, path: string) => {
+    const { ok, data } = await apiFetch("/api/files/content", { params: { path }, timeoutMs: 120000 });
+    return ok ? data : null;
+  });
+  // Download: the user picks where to save it on this device.
+  ipcMain.handle("save-file", async (event, path: string) => {
+    const { ok, data } = await apiFetch("/api/files/content", { params: { path }, timeoutMs: 120000 });
+    const file = data as { name?: string; data?: string } | null;
+    if (!ok || !file?.data) return { ok: false, error: "Could not fetch the file from the server" };
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const options = { defaultPath: file.name || "download" };
+    const choice = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+    if (choice.canceled || !choice.filePath) return { ok: false, canceled: true };
+    await writeFile(choice.filePath, Buffer.from(file.data, "base64"));
+    return { ok: true, savedTo: choice.filePath };
   });
 
   // Theta: drop a user message and everything after it (edit / regenerate)

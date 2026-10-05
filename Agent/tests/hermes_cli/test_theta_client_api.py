@@ -112,3 +112,34 @@ def test_deepseek_flash_is_a_thinking_model():
     mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
     assert mod._model_supports_thinking("deepseek-flash")
     assert not mod._model_supports_thinking("deepseek-chat")
+
+
+class TestSharedFiles:
+    def _root(self):
+        from hermes_constants import get_default_hermes_root
+
+        return get_default_hermes_root()
+
+    def test_only_workspace_and_vault_files_are_served(self, tmp_path):
+        ws = self._root() / "workspace" / "tasks"
+        ws.mkdir(parents=True)
+        (ws / "plan.md").write_text("# Plan", encoding="utf-8")
+        outside = tmp_path / "secret.txt"
+        outside.write_text("nope", encoding="utf-8")
+        (self._root() / ".env").write_text("X_API_KEY=abc", encoding="utf-8")
+
+        info = asyncio.run(api.files_info({"paths": [str(ws / "plan.md"), str(outside),
+                                                      str(self._root() / ".env"), str(ws / "missing.md")]}))
+        assert [f["name"] for f in info["files"]] == ["plan.md"]
+        assert info["files"][0]["mime"] == "text/markdown"
+
+        content = asyncio.run(api.file_content(str(ws / "plan.md")))
+        assert base64.b64decode(content["data"]) == b"# Plan"
+        with pytest.raises(api.HTTPException):
+            asyncio.run(api.file_content(str(outside)))
+
+    def test_path_traversal_out_of_workspace_is_refused(self):
+        ws = self._root() / "workspace"
+        ws.mkdir(parents=True, exist_ok=True)
+        (self._root() / "config.yaml").write_text("model: x", encoding="utf-8")
+        assert api.resolve_shared_file(str(ws / ".." / "config.yaml")) is None

@@ -3,6 +3,7 @@ import { Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import icon from "../../assets/icon.png";
 import { AgentMarkdown } from "../../components/AgentMarkdown";
 import { AgentSteps } from "./AgentSteps";
+import { AgentFiles } from "./AgentFiles";
 import { AttachmentChip } from "../../components/AttachmentChip";
 import { useI18n } from "../../components/useI18n";
 import type { Attachment, ChatMessage } from "./types";
@@ -127,6 +128,9 @@ export const MessageRow = memo(function MessageRow({
           ) : (
             msg.content
           ))
+        )}
+        {msg.role === "agent" && !editing && (
+          <AgentFiles content={msg.content} steps={msg.steps} live={isLast && isLoading} />
         )}
       </div>
       {!editing && msg.content && (

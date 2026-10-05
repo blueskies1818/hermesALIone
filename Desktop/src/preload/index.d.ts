@@ -274,6 +274,15 @@ interface HermesAPI {
       preview: string;
     }>
   >;
+  filesInfo: (
+    paths: string[],
+  ) => Promise<{ path: string; resolved: string; name: string; size: number; mime: string }[]>;
+  fileContent: (
+    path: string,
+  ) => Promise<{ name: string; mime: string; size: number; data: string } | null>;
+  saveFile: (
+    path: string,
+  ) => Promise<{ ok: boolean; savedTo?: string; canceled?: boolean; error?: string }>;
   rewindSession: (sessionId: string, userTurn: number) => Promise<boolean>;
   getSessionAgent: (
     sessionId: string,
