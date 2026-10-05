@@ -998,8 +998,10 @@ def get_vault_bucket_links(bucket_id: str) -> Dict:
             "ok": True,
             "links": [
                 {
-                    "fromPath": r["from_path"],
-                    "toPath": r["to_path"],
+                    # Same "/" separators as the tree API (rel_path is stored
+                    # with "\" on Windows), so clients can match them.
+                    "fromPath": (r["from_path"] or "").replace("\\", "/"),
+                    "toPath": r["to_path"].replace("\\", "/") if r["to_path"] else None,
                     "toTitle": r["to_title"],
                 }
                 for r in rows

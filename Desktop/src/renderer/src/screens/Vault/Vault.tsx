@@ -24,6 +24,8 @@ import {
   Link,
   List,
   Minus,
+  Maximize2,
+  Crosshair,
 } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
 
@@ -199,16 +201,19 @@ function TreeContextMenu({
   onNewFile,
   onNewFolder,
   onDelete,
+  onFocus,
   onClose,
 }: {
   menu: ContextMenuState;
   onNewFile: (parentFullPath: string) => void;
   onNewFolder: (parentFullPath: string) => void;
   onDelete: (node: TreeNode) => void;
+  onFocus: (node: TreeNode) => void;
   onClose: () => void;
 }): React.JSX.Element {
   const isDir = menu.node.type === "dir";
-  const parentDir = isDir ? menu.node.fullPath : menu.node.fullPath.replace(/\/[^/]+$/, "");
+  const isRoot = isDir && menu.node.relPath === "";
+  const parentDir = isDir ? menu.node.fullPath : menu.node.fullPath.replace(/[\\/][^\\/]+$/, "");
 
   return (
     <div
@@ -216,16 +221,28 @@ function TreeContextMenu({
       style={{ top: menu.y, left: menu.x }}
       onMouseLeave={onClose}
     >
+      {isDir && (
+        <>
+          <button className="vault-ctx-item" onClick={() => { onFocus(menu.node); onClose(); }}>
+            <Crosshair size={13} /> Focus in graph
+          </button>
+          <div className="vault-ctx-sep" />
+        </>
+      )}
       <button className="vault-ctx-item" onClick={() => { onNewFile(parentDir); onClose(); }}>
         <FilePlus size={13} /> New file here
       </button>
       <button className="vault-ctx-item" onClick={() => { onNewFolder(parentDir); onClose(); }}>
         <FolderPlus size={13} /> New folder here
       </button>
-      <div className="vault-ctx-sep" />
-      <button className="vault-ctx-item vault-ctx-danger" onClick={() => { onDelete(menu.node); onClose(); }}>
-        <Trash2 size={13} /> Delete {isDir ? "folder" : "file"}
-      </button>
+      {!isRoot && (
+        <>
+          <div className="vault-ctx-sep" />
+          <button className="vault-ctx-item vault-ctx-danger" onClick={() => { onDelete(menu.node); onClose(); }}>
+            <Trash2 size={13} /> Delete {isDir ? "folder" : "file"}
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -519,85 +536,179 @@ function VaultEditor({
 // Force-directed node graph
 // ---------------------------------------------------------------------------
 
+// Mid-tone palette: readable on both the light and the dark theme.
 const BUCKET_COLORS = [
-  "#00ffcc", "#7c6aff", "#ff6b6b", "#ffd93d",
-  "#6bcb77", "#ff9f43", "#a29bfe", "#fd79a8",
+  "#14b8a6", "#6366f1", "#f97316", "#e11d48",
+  "#0ea5e9", "#a855f7", "#22c55e", "#d97706",
 ];
 
+/** Normalise Windows/posix separators so paths from different APIs compare equal. */
+function normPath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+/** True when `path` is `root` itself or lies inside it. */
+function isWithin(path: string, root: string): boolean {
+  const a = normPath(path).toLowerCase();
+  const b = normPath(root).toLowerCase();
+  return a === b || a.startsWith(b + "/");
+}
+
+type GKind = "bucket" | "dir" | "file";
+
 interface GNode {
-  id: string; label: string; bucketId: string;
+  id: string; label: string; bucketId: string; kind: GKind;
   fullPath: string; relPath: string;
   x: number; y: number; vx: number; vy: number; pinned: boolean;
 }
-interface GEdge { source: string; target: string; }
+interface GEdge { source: string; target: string; kind: "tree" | "link"; }
 
-function collectFileNodes(nodes: TreeNode[], bucketId: string, out: Omit<GNode,"vx"|"vy"|"pinned">[]): void {
-  for (const n of nodes) {
-    if (n.type === "file") out.push({ id: n.fullPath, label: n.name.replace(/\.md$/i,""), bucketId, fullPath: n.fullPath, relPath: n.relPath, x: (Math.random()-0.5)*300, y: (Math.random()-0.5)*300 });
-    if (n.children) collectFileNodes(n.children, bucketId, out);
-  }
+interface GraphFocus { fullPath: string; label: string; bucketId: string; }
+
+interface ThemeColors {
+  text: string; muted: string; border: string; bg: string; grid: string; dark: boolean;
 }
 
-function VaultGraph({ buckets, bucketTrees, onOpenFile }: {
+function readThemeColors(): ThemeColors {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string): string => cs.getPropertyValue(name).trim() || fallback;
+  const dark = document.documentElement.getAttribute("data-theme") !== "light";
+  return {
+    text: v("--text-primary", dark ? "#ececec" : "#111111"),
+    muted: v("--text-secondary", dark ? "#b4b4b4" : "#555555"),
+    border: v("--border-bright", dark ? "rgba(255,255,255,0.1)" : "#d4d4d4"),
+    bg: v("--bg-secondary", dark ? "#171717" : "#f8f8f8"),
+    grid: dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)",
+    dark,
+  };
+}
+
+/** Build hub nodes (project, folders), file nodes and the tree edges joining them. */
+function buildGraph(
+  buckets: VaultBucket[],
+  bucketTrees: Record<string, BucketNodeState>,
+  focus: GraphFocus | null,
+): { nodes: Omit<GNode, "x"|"y"|"vx"|"vy"|"pinned">[]; edges: GEdge[] } {
+  const nodes: Omit<GNode, "x"|"y"|"vx"|"vy"|"pinned">[] = [];
+  const edges: GEdge[] = [];
+  const keep = (fullPath: string): boolean => !focus || isWithin(fullPath, focus.fullPath);
+
+  const walk = (items: TreeNode[], bucketId: string, parentId: string): void => {
+    for (const n of items) {
+      if (n.type === "dir") {
+        if (keep(n.fullPath) || (focus && isWithin(focus.fullPath, n.fullPath))) {
+          const visible = keep(n.fullPath);
+          if (visible) {
+            nodes.push({ id: n.fullPath, label: n.name, bucketId, kind: "dir", fullPath: n.fullPath, relPath: n.relPath });
+            if (parentId) edges.push({ source: n.fullPath, target: parentId, kind: "tree" });
+          }
+          walk(n.children ?? [], bucketId, visible ? n.fullPath : "");
+        }
+      } else if (keep(n.fullPath)) {
+        nodes.push({ id: n.fullPath, label: n.name.replace(/\.md$/i, ""), bucketId, kind: "file", fullPath: n.fullPath, relPath: n.relPath });
+        if (parentId) edges.push({ source: n.fullPath, target: parentId, kind: "tree" });
+      }
+    }
+  };
+
+  for (const b of buckets) {
+    const state = bucketTrees[b.id];
+    if (!state?.tree || !state.bucketPath) continue;
+    if (focus && focus.bucketId !== b.id) continue;
+    const showHub = keep(state.bucketPath);
+    if (showHub) {
+      nodes.push({ id: state.bucketPath, label: b.name, bucketId: b.id, kind: "bucket", fullPath: state.bucketPath, relPath: "" });
+    }
+    walk(state.tree, b.id, showHub ? state.bucketPath : "");
+  }
+  return { nodes, edges };
+}
+
+function nodeRadius(kind: GKind): number {
+  return kind === "bucket" ? 13 : kind === "dir" ? 8.5 : 5.5;
+}
+
+function VaultGraph({ buckets, bucketTrees, focus, onFocus, onOpenFile }: {
   buckets: VaultBucket[];
   bucketTrees: Record<string, BucketNodeState>;
+  focus: GraphFocus | null;
+  onFocus: (focus: GraphFocus | null) => void;
   onOpenFile: (node: TreeNode) => void;
 }): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodeCount, setNodeCount] = useState(0);
   const simRef = useRef<{
-    nodes: GNode[]; edges: GEdge[];
+    nodes: GNode[]; edges: GEdge[]; links: GEdge[];
     pan: {x:number;y:number}; zoom: number;
+    target: {x:number;y:number;zoom:number} | null; fitFrames: number;
     hoverId: string|null; dragId: string|null; dragOffset: {x:number;y:number};
     isPanning: boolean; panStart: {x:number;y:number};
-    didDrag: boolean;
-    raf: number; w: number; h: number;
-  }>({ nodes:[], edges:[], pan:{x:0,y:0}, zoom:1, hoverId:null, dragId:null, dragOffset:{x:0,y:0}, isPanning:false, panStart:{x:0,y:0}, didDrag:false, raf:0, w:800, h:600 });
+    didDrag: boolean; alpha: number;
+    raf: number; w: number; h: number; theme: ThemeColors | null; themeAge: number;
+  }>({ nodes:[], edges:[], links:[], pan:{x:0,y:0}, zoom:1, target:null, fitFrames:0,
+       hoverId:null, dragId:null, dragOffset:{x:0,y:0}, isPanning:false, panStart:{x:0,y:0},
+       didDrag:false, alpha:1, raf:0, w:800, h:600, theme:null, themeAge:0 });
 
-  // Sync nodes from bucket trees
+  const colorMap = useRef(new Map<string, string>());
+  useEffect(() => {
+    colorMap.current = new Map(buckets.map((b, i) => [b.id, BUCKET_COLORS[i % BUCKET_COLORS.length]]));
+  }, [buckets]);
+
+  // Rebuild nodes/edges whenever the trees or the focus change.
   useEffect(() => {
     const sim = simRef.current;
     const existing = new Map(sim.nodes.map(n => [n.id, n]));
+    const { nodes, edges } = buildGraph(buckets, bucketTrees, focus);
+    const byId = new Map<string, GNode>();
     const fresh: GNode[] = [];
-    const proto: Omit<GNode,"vx"|"vy"|"pinned">[] = [];
-    for (const b of buckets) {
-      const t = bucketTrees[b.id]?.tree;
-      if (t) collectFileNodes(t, b.id, proto);
-    }
-    for (const p of proto) {
+    for (const p of nodes) {
       const prev = existing.get(p.id);
-      fresh.push(prev ? { ...prev, label: p.label } : { ...p, vx:0, vy:0, pinned:false });
+      // New nodes start near their parent so the layout grows outward.
+      const parentEdge = edges.find(e => e.source === p.id);
+      const parent = parentEdge ? (byId.get(parentEdge.target) ?? existing.get(parentEdge.target)) : undefined;
+      const node: GNode = prev
+        ? { ...prev, ...p }
+        : { ...p, x: (parent?.x ?? 0) + (Math.random() - 0.5) * 60, y: (parent?.y ?? 0) + (Math.random() - 0.5) * 60,
+            vx: 0, vy: 0, pinned: false };
+      fresh.push(node); byId.set(node.id, node);
     }
     sim.nodes = fresh;
-    setNodeCount(fresh.length);
-  }, [buckets, bucketTrees]);
+    sim.edges = edges;
+    sim.alpha = 1;
+    sim.fitFrames = 90; // glide the camera to fit the new set
+    setNodeCount(fresh.filter(n => n.kind === "file").length);
+  }, [buckets, bucketTrees, focus]);
 
-  // Fetch wikilinks
+  // Wikilinks between notes (resolved by the backend per bucket).
   useEffect(() => {
     const sim = simRef.current;
+    let cancelled = false;
     Promise.all(buckets.map(async b => {
       try {
         const r = await window.hermesAPI.vault.getLinks(b.id);
-        if (!r.ok) return [];
-        return r.links
-          .filter((l: {toPath:string|null}) => l.toPath)
-          .map((l: {fromPath:string;toPath:string}) => {
-            const src = sim.nodes.find(n => n.bucketId===b.id && n.relPath===l.fromPath);
-            const tgt = sim.nodes.find(n => n.bucketId===b.id && n.relPath===l.toPath);
-            return src && tgt && src.id!==tgt.id ? { source:src.id, target:tgt.id } : null;
-          })
-          .filter(Boolean) as GEdge[];
-      } catch { return []; }
-    })).then(all => { sim.edges = all.flat(); });
-  }, [buckets]);
+        if (!r.ok) return [] as GEdge[];
+        const base = bucketTrees[b.id]?.bucketPath;
+        if (!base) return [] as GEdge[];
+        const edges: GEdge[] = [];
+        for (const l of r.links) {
+          if (!l.toPath) continue;
+          const source = `${normPath(base)}/${normPath(l.fromPath)}`.toLowerCase();
+          const target = `${normPath(base)}/${normPath(l.toPath)}`.toLowerCase();
+          if (source !== target) edges.push({ source, target, kind: "link" });
+        }
+        return edges;
+      } catch { return [] as GEdge[]; }
+    })).then(all => { if (!cancelled) { sim.links = all.flat(); sim.alpha = Math.max(sim.alpha, 0.5); } });
+    return () => { cancelled = true; };
+  }, [buckets, bucketTrees]);
 
-  // Animation loop
+  // Simulation + rendering loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const sim = simRef.current;
 
-    const resize = () => {
+    const resize = (): void => {
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.offsetWidth; const h = canvas.offsetHeight;
       canvas.width = w * dpr; canvas.height = h * dpr;
@@ -607,184 +718,381 @@ function VaultGraph({ buckets, bucketTrees, onOpenFile }: {
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
-    const colorMap = new Map(buckets.map((b,i) => [b.id, BUCKET_COLORS[i % BUCKET_COLORS.length]]));
+    const keyOf = (n: GNode): string => normPath(n.fullPath).toLowerCase();
 
-    function tick() {
+    function resolvedLinks(): [GNode, GNode][] {
+      const byKey = new Map(sim.nodes.map(n => [keyOf(n), n]));
+      const out: [GNode, GNode][] = [];
+      for (const e of sim.links) {
+        const s = byKey.get(e.source), t = byKey.get(e.target);
+        if (s && t) out.push([s, t]);
+      }
+      return out;
+    }
+
+    function tick(links: [GNode, GNode][]): void {
       const { nodes, edges } = sim;
-      if (nodes.length === 0) return;
-      const REP=3500, K_SPRING=0.05, REST=110, GRAV=0.01, DAMP=0.82;
+      if (nodes.length === 0 || sim.alpha < 0.002) return;
+      const a = sim.alpha;
       const fx = new Float32Array(nodes.length);
       const fy = new Float32Array(nodes.length);
-      for (let i=0;i<nodes.length;i++) {
-        for (let j=i+1;j<nodes.length;j++) {
-          const dx=nodes[j].x-nodes[i].x, dy=nodes[j].y-nodes[i].y;
-          const d2=dx*dx+dy*dy+1; const d=Math.sqrt(d2);
-          const f=REP/d2; const ux=dx/d, uy=dy/d;
-          fx[i]-=f*ux; fy[i]-=f*uy; fx[j]+=f*ux; fy[j]+=f*uy;
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
+          const d2 = dx * dx + dy * dy + 1; const d = Math.sqrt(d2);
+          const rep = (nodes[i].kind === "file" ? 1 : 2.2) * (nodes[j].kind === "file" ? 1 : 2.2);
+          const f = 2200 * rep / d2; const ux = dx / d, uy = dy / d;
+          fx[i] -= f * ux; fy[i] -= f * uy; fx[j] += f * ux; fy[j] += f * uy;
         }
       }
-      const idxMap = new Map(nodes.map((n,i)=>[n.id,i]));
+      const idx = new Map(nodes.map((n, i) => [n.id, i]));
+      const spring = (si: number, ti: number, rest: number, k: number): void => {
+        const dx = nodes[ti].x - nodes[si].x, dy = nodes[ti].y - nodes[si].y;
+        const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
+        const f = k * (d - rest); const ux = dx / d, uy = dy / d;
+        fx[si] += f * ux; fy[si] += f * uy; fx[ti] -= f * ux; fy[ti] -= f * uy;
+      };
       for (const e of edges) {
-        const si=idxMap.get(e.source), ti=idxMap.get(e.target);
-        if (si==null||ti==null) continue;
-        const dx=nodes[ti].x-nodes[si].x, dy=nodes[ti].y-nodes[si].y;
-        const d=Math.sqrt(dx*dx+dy*dy)+0.01;
-        const f=K_SPRING*(d-REST); const ux=dx/d, uy=dy/d;
-        fx[si]+=f*ux; fy[si]+=f*uy; fx[ti]-=f*ux; fy[ti]-=f*uy;
+        const si = idx.get(e.source), ti = idx.get(e.target);
+        if (si == null || ti == null) continue;
+        spring(si, ti, nodes[ti].kind === "bucket" ? 90 : 60, 0.06);
       }
-      for (let i=0;i<nodes.length;i++) {
-        fx[i]-=GRAV*nodes[i].x; fy[i]-=GRAV*nodes[i].y;
+      for (const [s, t] of links) {
+        const si = idx.get(s.id), ti = idx.get(t.id);
+        if (si != null && ti != null) spring(si, ti, 120, 0.02);
       }
-      for (let i=0;i<nodes.length;i++) {
-        if (nodes[i].pinned) continue;
-        nodes[i].vx=(nodes[i].vx+fx[i])*DAMP; nodes[i].vy=(nodes[i].vy+fy[i])*DAMP;
-        nodes[i].x+=nodes[i].vx; nodes[i].y+=nodes[i].vy;
+      for (let i = 0; i < nodes.length; i++) {
+        fx[i] -= 0.012 * nodes[i].x; fy[i] -= 0.012 * nodes[i].y;
+      }
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        if (n.pinned) continue;
+        n.vx = (n.vx + fx[i] * a) * 0.78; n.vy = (n.vy + fy[i] * a) * 0.78;
+        n.x += n.vx; n.y += n.vy;
+      }
+      sim.alpha *= 0.994;
+    }
+
+    function updateCamera(): void {
+      const { nodes } = sim;
+      if (sim.fitFrames > 0 && nodes.length > 0) {
+        sim.fitFrames -= 1;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const n of nodes) {
+          minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
+          minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
+        }
+        const pad = 90;
+        const zoom = Math.max(0.2, Math.min(2.2,
+          Math.min(sim.w / (maxX - minX + pad * 2), sim.h / (maxY - minY + pad * 2))));
+        sim.target = { x: -((minX + maxX) / 2) * zoom, y: -((minY + maxY) / 2) * zoom, zoom };
+      }
+      if (sim.target) {
+        const t = sim.target;
+        sim.zoom += (t.zoom - sim.zoom) * 0.12;
+        sim.pan.x += (t.x - sim.pan.x) * 0.12;
+        sim.pan.y += (t.y - sim.pan.y) * 0.12;
+        if (sim.fitFrames === 0 && Math.abs(t.zoom - sim.zoom) < 0.001 && Math.abs(t.x - sim.pan.x) < 0.5) sim.target = null;
       }
     }
 
-    function draw(ctx: CanvasRenderingContext2D) {
+    function draw(ctx: CanvasRenderingContext2D, links: [GNode, GNode][]): void {
+      if (!sim.theme || sim.themeAge++ > 30) { sim.theme = readThemeColors(); sim.themeAge = 0; }
+      const theme = sim.theme;
       const { nodes, edges, pan, zoom, hoverId, w, h } = sim;
       const dpr = window.devicePixelRatio || 1;
-      ctx.clearRect(0, 0, w*dpr, h*dpr);
-      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, w * dpr, h * dpr);
       ctx.scale(dpr, dpr);
-      ctx.translate(w/2+pan.x, h/2+pan.y);
+
+      // Dot grid (screen space, follows pan/zoom)
+      const step = 26 * zoom;
+      if (step > 8) {
+        ctx.fillStyle = theme.grid;
+        const ox = ((w / 2 + pan.x) % step + step) % step;
+        const oy = ((h / 2 + pan.y) % step + step) % step;
+        for (let x = ox; x < w; x += step) {
+          for (let y = oy; y < h; y += step) { ctx.fillRect(x, y, 1.2, 1.2); }
+        }
+      }
+
+      ctx.translate(w / 2 + pan.x, h / 2 + pan.y);
       ctx.scale(zoom, zoom);
 
-      const nodeMap = new Map(nodes.map(n=>[n.id,n]));
-      // Edges
+      const nodeMap = new Map(nodes.map(n => [n.id, n]));
+      const neighbours = new Set<string>();
+      if (hoverId) {
+        neighbours.add(hoverId);
+        for (const e of edges) {
+          if (e.source === hoverId) neighbours.add(e.target);
+          if (e.target === hoverId) neighbours.add(e.source);
+        }
+        for (const [s, t] of links) {
+          if (s.id === hoverId) neighbours.add(t.id);
+          if (t.id === hoverId) neighbours.add(s.id);
+        }
+      }
+      const dimmed = (id: string): boolean => hoverId !== null && !neighbours.has(id);
+      const colorOf = (n: GNode): string => colorMap.current.get(n.bucketId) ?? BUCKET_COLORS[0];
+
+      // Structure edges: note → folder → project, in the project colour
+      ctx.lineCap = "round";
       for (const e of edges) {
-        const s=nodeMap.get(e.source), t=nodeMap.get(e.target);
-        if (!s||!t) continue;
-        ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(t.x,t.y);
-        ctx.strokeStyle="rgba(255,255,255,0.13)"; ctx.lineWidth=1.2/zoom; ctx.stroke();
+        const s = nodeMap.get(e.source), t = nodeMap.get(e.target);
+        if (!s || !t) continue;
+        const lit = hoverId !== null && (s.id === hoverId || t.id === hoverId);
+        ctx.globalAlpha = dimmed(s.id) && dimmed(t.id) ? 0.12 : lit ? 0.9 : 0.42;
+        ctx.strokeStyle = colorOf(t);
+        ctx.lineWidth = (lit ? 2 : 1.25) / zoom;
+        ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y); ctx.stroke();
       }
-      // Nodes
-      for (const n of nodes) {
-        const hov=n.id===hoverId;
-        const col=colorMap.get(n.bucketId)??"#00ffcc";
-        const r=hov?9:7;
+      // Wikilinks between notes: dashed, theme coloured
+      ctx.setLineDash([4 / zoom, 4 / zoom]);
+      for (const [s, t] of links) {
+        const lit = hoverId !== null && (s.id === hoverId || t.id === hoverId);
+        ctx.globalAlpha = dimmed(s.id) && dimmed(t.id) ? 0.12 : lit ? 0.95 : 0.55;
+        ctx.strokeStyle = theme.muted;
+        ctx.lineWidth = (lit ? 1.8 : 1.1) / zoom;
+        ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Nodes: hubs first so notes sit on top
+      const order = [...nodes].sort((a, b) => (a.kind === "file" ? 1 : 0) - (b.kind === "file" ? 1 : 0));
+      for (const n of order) {
+        const hov = n.id === hoverId;
+        const col = colorOf(n);
+        const r = (nodeRadius(n.kind) + (hov ? 2 : 0)) / Math.sqrt(zoom);
+        ctx.globalAlpha = dimmed(n.id) ? 0.25 : 1;
         if (hov) {
-          const g=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,22/zoom);
-          g.addColorStop(0,col+"50"); g.addColorStop(1,col+"00");
-          ctx.beginPath(); ctx.arc(n.x,n.y,22/zoom,0,Math.PI*2);
-          ctx.fillStyle=g; ctx.fill();
+          const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 3);
+          g.addColorStop(0, col + "55"); g.addColorStop(1, col + "00");
+          ctx.beginPath(); ctx.arc(n.x, n.y, r * 3, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
         }
-        ctx.beginPath(); ctx.arc(n.x,n.y,r/zoom,0,Math.PI*2);
-        ctx.fillStyle=hov?col:col+"bb"; ctx.fill();
-        ctx.strokeStyle=hov?col:col+"44"; ctx.lineWidth=(hov?1.5:1)/zoom; ctx.stroke();
-        if (hov||zoom>0.65) {
-          const fs=Math.round(10.5/zoom);
-          ctx.font=`${hov?600:400} ${fs}px system-ui,sans-serif`;
-          ctx.fillStyle=hov?"#fff":"rgba(255,255,255,0.55)";
-          ctx.textAlign="center";
-          ctx.fillText(n.label, n.x, n.y+(r+11)/zoom);
+        ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        if (n.kind === "file") {
+          ctx.fillStyle = col; ctx.fill();
+          ctx.strokeStyle = theme.bg; ctx.lineWidth = 1.5 / zoom; ctx.stroke();
+        } else {
+          ctx.fillStyle = theme.bg; ctx.fill();
+          ctx.strokeStyle = col; ctx.lineWidth = (n.kind === "bucket" ? 3 : 2) / zoom; ctx.stroke();
+          ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.42, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
         }
       }
-      ctx.restore();
+
+      // Labels with a halo in the background colour for legibility
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.lineJoin = "round";
+      for (const n of order) {
+        const hov = n.id === hoverId;
+        const isHub = n.kind !== "file";
+        if (!hov && !isHub && zoom < 0.7 && !neighbours.has(n.id)) continue;
+        if (dimmed(n.id) && !isHub) continue;
+        const size = (n.kind === "bucket" ? 13 : n.kind === "dir" ? 11.5 : 11) / zoom;
+        const weight = n.kind === "bucket" ? 600 : hov || n.kind === "dir" ? 500 : 400;
+        ctx.font = `${weight} ${size}px "Google Sans", system-ui, sans-serif`;
+        const label = n.label.length > 42 && !hov ? n.label.slice(0, 40) + "…" : n.label;
+        const y = n.y + (nodeRadius(n.kind) / Math.sqrt(zoom) + 5 / zoom);
+        ctx.globalAlpha = dimmed(n.id) ? 0.35 : 1;
+        ctx.strokeStyle = theme.bg; ctx.lineWidth = 4 / zoom;
+        ctx.strokeText(label, n.x, y);
+        ctx.fillStyle = hov || isHub ? theme.text : theme.muted;
+        ctx.fillText(label, n.x, y);
+      }
+      ctx.globalAlpha = 1;
     }
 
-    function loop() {
-      const ctx=canvas.getContext("2d");
-      if (ctx) { tick(); draw(ctx); }
-      sim.raf=requestAnimationFrame(loop);
+    function loop(): void {
+      const ctx = canvas!.getContext("2d");
+      if (ctx) {
+        const links = resolvedLinks();
+        tick(links); updateCamera(); draw(ctx, links);
+      }
+      sim.raf = requestAnimationFrame(loop);
     }
-    sim.raf=requestAnimationFrame(loop);
+    sim.raf = requestAnimationFrame(loop);
     return () => { cancelAnimationFrame(sim.raf); ro.disconnect(); };
-  }, [buckets]);
+  }, []);
 
-  const toGraph = useCallback((cx:number, cy:number)=>{
-    const canvas=canvasRef.current; if (!canvas) return {x:0,y:0};
-    const r=canvas.getBoundingClientRect(), sim=simRef.current;
-    return { x:(cx-r.left-sim.w/2-sim.pan.x)/sim.zoom, y:(cy-r.top-sim.h/2-sim.pan.y)/sim.zoom };
-  },[]);
+  const toGraph = useCallback((cx: number, cy: number) => {
+    const canvas = canvasRef.current; if (!canvas) return { x: 0, y: 0 };
+    const r = canvas.getBoundingClientRect(), sim = simRef.current;
+    return { x: (cx - r.left - sim.w / 2 - sim.pan.x) / sim.zoom, y: (cy - r.top - sim.h / 2 - sim.pan.y) / sim.zoom };
+  }, []);
 
-  const hitNode = useCallback((gx:number,gy:number)=>{
-    const sim=simRef.current;
-    const radius=12/sim.zoom;
-    for (const n of sim.nodes) { const dx=n.x-gx,dy=n.y-gy; if (dx*dx+dy*dy<=radius*radius) return n; }
-    return null;
-  },[]);
+  const hitNode = useCallback((gx: number, gy: number): GNode | null => {
+    const sim = simRef.current;
+    let best: GNode | null = null; let bestD = Infinity;
+    for (const n of sim.nodes) {
+      const r = (nodeRadius(n.kind) + 5) / Math.sqrt(sim.zoom);
+      const d = (n.x - gx) ** 2 + (n.y - gy) ** 2;
+      if (d <= r * r && d < bestD) { best = n; bestD = d; }
+    }
+    return best;
+  }, []);
 
-  const onMouseMove=useCallback((e:React.MouseEvent<HTMLCanvasElement>)=>{
-    const sim=simRef.current; const gp=toGraph(e.clientX,e.clientY);
+  const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const sim = simRef.current; const gp = toGraph(e.clientX, e.clientY);
     if (sim.dragId) {
-      const n=sim.nodes.find(n=>n.id===sim.dragId);
-      if (n){n.x=gp.x+sim.dragOffset.x;n.y=gp.y+sim.dragOffset.y;n.vx=0;n.vy=0;}
-      sim.didDrag=true; return;
+      const n = sim.nodes.find(n => n.id === sim.dragId);
+      if (n) { n.x = gp.x + sim.dragOffset.x; n.y = gp.y + sim.dragOffset.y; n.vx = 0; n.vy = 0; }
+      sim.didDrag = true; sim.alpha = Math.max(sim.alpha, 0.3); return;
     }
     if (sim.isPanning) {
-      sim.pan.x=e.clientX-sim.panStart.x; sim.pan.y=e.clientY-sim.panStart.y;
-      sim.didDrag=true; return;
+      sim.pan.x = e.clientX - sim.panStart.x; sim.pan.y = e.clientY - sim.panStart.y;
+      sim.didDrag = true; return;
     }
-    const hit=hitNode(gp.x,gp.y); sim.hoverId=hit?.id??null;
-    if (canvasRef.current) canvasRef.current.style.cursor=hit?"pointer":"grab";
-  },[toGraph,hitNode]);
+    const hit = hitNode(gp.x, gp.y); sim.hoverId = hit?.id ?? null;
+    if (canvasRef.current) canvasRef.current.style.cursor = hit ? "pointer" : "grab";
+  }, [toGraph, hitNode]);
 
-  const onMouseDown=useCallback((e:React.MouseEvent<HTMLCanvasElement>)=>{
-    const sim=simRef.current; const gp=toGraph(e.clientX,e.clientY);
-    sim.didDrag=false;
-    const hit=hitNode(gp.x,gp.y);
-    if (hit){sim.dragId=hit.id;sim.dragOffset={x:hit.x-gp.x,y:hit.y-gp.y};hit.pinned=true;}
-    else {sim.isPanning=true;sim.panStart={x:e.clientX-sim.pan.x,y:e.clientY-sim.pan.y};}
-  },[toGraph,hitNode]);
+  const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return;
+    const sim = simRef.current; const gp = toGraph(e.clientX, e.clientY);
+    sim.didDrag = false; sim.target = null; sim.fitFrames = 0;
+    const hit = hitNode(gp.x, gp.y);
+    if (hit) { sim.dragId = hit.id; sim.dragOffset = { x: hit.x - gp.x, y: hit.y - gp.y }; hit.pinned = true; }
+    else { sim.isPanning = true; sim.panStart = { x: e.clientX - sim.pan.x, y: e.clientY - sim.pan.y }; }
+  }, [toGraph, hitNode]);
 
-  const onMouseUp=useCallback(()=>{
-    const sim=simRef.current;
-    if (sim.dragId){const n=sim.nodes.find(n=>n.id===sim.dragId);if(n)n.pinned=false;sim.dragId=null;}
-    sim.isPanning=false;
-  },[]);
+  const onMouseUp = useCallback(() => {
+    const sim = simRef.current;
+    if (sim.dragId) { const n = sim.nodes.find(n => n.id === sim.dragId); if (n) n.pinned = false; sim.dragId = null; }
+    sim.isPanning = false;
+  }, []);
 
-  const onClick=useCallback((e:React.MouseEvent<HTMLCanvasElement>)=>{
-    const sim=simRef.current; if (sim.didDrag) return;
-    const gp=toGraph(e.clientX,e.clientY); const hit=hitNode(gp.x,gp.y);
-    if (hit) onOpenFile({name:hit.label+".md",relPath:hit.relPath,fullPath:hit.fullPath,type:"file",children:undefined});
-  },[toGraph,hitNode,onOpenFile]);
+  const onMouseLeave = useCallback(() => { onMouseUp(); simRef.current.hoverId = null; }, [onMouseUp]);
 
-  // Wheel zoom — must be non-passive to call preventDefault
+  const focusNode = useCallback((n: GNode) => {
+    onFocus({ fullPath: n.fullPath, label: n.label, bucketId: n.bucketId });
+  }, [onFocus]);
+
+  const onClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const sim = simRef.current; if (sim.didDrag) return;
+    const gp = toGraph(e.clientX, e.clientY); const hit = hitNode(gp.x, gp.y);
+    if (!hit) return;
+    if (hit.kind === "file") {
+      onOpenFile({ name: hit.label + ".md", relPath: hit.relPath, fullPath: hit.fullPath, type: "file", children: undefined });
+    }
+  }, [toGraph, hitNode, onOpenFile]);
+
+  const onDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const gp = toGraph(e.clientX, e.clientY); const hit = hitNode(gp.x, gp.y);
+    if (hit && hit.kind !== "file") focusNode(hit);
+  }, [toGraph, hitNode, focusNode]);
+
+  // Right-click: focus a project/folder; on empty space, step back out.
+  const onContextMenu = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const gp = toGraph(e.clientX, e.clientY); const hit = hitNode(gp.x, gp.y);
+    if (hit && hit.kind !== "file" && hit.fullPath !== focus?.fullPath) { focusNode(hit); return; }
+    if (focus) onFocus(null);
+  }, [toGraph, hitNode, focus, focusNode, onFocus]);
+
+  // Wheel zoom around the cursor (non-passive to allow preventDefault)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const handler = (e: WheelEvent) => {
+    const handler = (e: WheelEvent): void => {
       e.preventDefault();
       const sim = simRef.current;
-      sim.zoom = Math.max(0.15, Math.min(5, sim.zoom * (e.deltaY > 0 ? 0.92 : 1.09)));
+      sim.target = null; sim.fitFrames = 0;
+      const r = canvas.getBoundingClientRect();
+      const mx = e.clientX - r.left - sim.w / 2, my = e.clientY - r.top - sim.h / 2;
+      const next = Math.max(0.15, Math.min(5, sim.zoom * (e.deltaY > 0 ? 0.9 : 1.11)));
+      sim.pan.x = mx - (mx - sim.pan.x) * (next / sim.zoom);
+      sim.pan.y = my - (my - sim.pan.y) * (next / sim.zoom);
+      sim.zoom = next;
     };
     canvas.addEventListener("wheel", handler, { passive: false });
     return () => canvas.removeEventListener("wheel", handler);
   }, []);
 
-  const hasNodes = nodeCount > 0;
-  const bucketsLoaded = buckets.length > 0;
+  const zoomBy = (factor: number): void => {
+    const sim = simRef.current; sim.fitFrames = 0;
+    const zoom = Math.max(0.15, Math.min(5, sim.zoom * factor));
+    sim.target = { x: sim.pan.x * (zoom / sim.zoom), y: sim.pan.y * (zoom / sim.zoom), zoom };
+  };
+  const fit = (): void => { simRef.current.fitFrames = 45; };
 
-  if (!bucketsLoaded) return (
+  if (buckets.length === 0) return (
     <div className="vault-note-placeholder">
-      <FileText size={32} style={{opacity:0.2}}/>
+      <FileText size={32} style={{ opacity: 0.2 }} />
       <span>No knowledge bases — create one in the Knowledge Bases tab</span>
     </div>
   );
 
+  const crumbs: { label: string; target: GraphFocus | null }[] = [{ label: "All projects", target: null }];
+  if (focus) {
+    const bucket = buckets.find(b => b.id === focus.bucketId);
+    const base = bucketTrees[focus.bucketId]?.bucketPath ?? "";
+    if (bucket && base) {
+      crumbs.push({ label: bucket.name, target: { fullPath: base, label: bucket.name, bucketId: bucket.id } });
+      const rel = normPath(focus.fullPath).slice(normPath(base).length).split("/").filter(Boolean);
+      let acc = normPath(base);
+      for (const part of rel) {
+        acc = `${acc}/${part}`;
+        crumbs.push({ label: part, target: { fullPath: acc, label: part, bucketId: bucket.id } });
+      }
+    }
+  }
+
   return (
     <div className="vault-graph-wrap">
       <canvas ref={canvasRef} className="vault-graph-canvas"
-        onMouseMove={onMouseMove} onMouseDown={onMouseDown}
-        onMouseUp={onMouseUp} onClick={onClick}
+        onMouseMove={onMouseMove} onMouseDown={onMouseDown} onMouseUp={onMouseUp}
+        onMouseLeave={onMouseLeave} onClick={onClick} onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
       />
-      {!hasNodes && (
-        <div className="vault-graph-empty">
-          <FileText size={28} style={{opacity:0.2}}/>
-          <span>Add files to your knowledge bases to see the graph</span>
-        </div>
-      )}
-      <div className="vault-graph-legend">
-        {buckets.map((b,i)=>(
-          <span key={b.id} className="vault-graph-legend-item">
-            <span className="vault-graph-legend-dot" style={{background:BUCKET_COLORS[i%BUCKET_COLORS.length]}}/>
-            {b.name}
+
+      <div className="vault-graph-crumbs">
+        {crumbs.map((c, i) => (
+          <span key={i} className="vault-graph-crumb-wrap">
+            {i > 0 && <span className="vault-graph-crumb-sep">/</span>}
+            <button
+              className={`vault-graph-crumb${i === crumbs.length - 1 ? " vault-graph-crumb-current" : ""}`}
+              onClick={() => onFocus(c.target)}
+              disabled={i === crumbs.length - 1}
+            >{c.label}</button>
           </span>
         ))}
+        {focus && (
+          <button className="vault-graph-crumb-back" onClick={() => onFocus(null)} title="Zoom back out">
+            <ArrowLeft size={12} /> Back
+          </button>
+        )}
       </div>
-      <div className="vault-graph-hint">scroll to zoom · drag to pan · click to open</div>
+
+      <div className="vault-graph-controls">
+        <button className="vault-graph-ctrl" onClick={() => zoomBy(1.25)} title="Zoom in"><Plus size={14} /></button>
+        <button className="vault-graph-ctrl" onClick={() => zoomBy(0.8)} title="Zoom out"><Minus size={14} /></button>
+        <button className="vault-graph-ctrl" onClick={fit} title="Fit to view"><Maximize2 size={13} /></button>
+      </div>
+
+      {nodeCount === 0 && (
+        <div className="vault-graph-empty">
+          <FileText size={28} style={{ opacity: 0.2 }} />
+          <span>{focus ? "Nothing in this folder yet" : "Add files to your knowledge bases to see the graph"}</span>
+        </div>
+      )}
+
+      <div className="vault-graph-legend">
+        {buckets.filter(b => !focus || b.id === focus.bucketId).map(b => (
+          <button key={b.id} className="vault-graph-legend-item"
+            onClick={() => {
+              const base = bucketTrees[b.id]?.bucketPath;
+              if (base) onFocus({ fullPath: base, label: b.name, bucketId: b.id });
+            }}
+            title={`Focus ${b.name}`}>
+            <span className="vault-graph-legend-dot" style={{ background: colorMap.current.get(b.id) ?? BUCKET_COLORS[0] }} />
+            {b.name}
+          </button>
+        ))}
+        <span className="vault-graph-legend-key"><span className="vault-graph-key-solid" /> in folder</span>
+        <span className="vault-graph-legend-key"><span className="vault-graph-key-dashed" /> linked</span>
+      </div>
+      <div className="vault-graph-hint">Right-click a folder to focus · right-click empty space to zoom out</div>
     </div>
   );
 }
@@ -817,6 +1125,13 @@ function ExplorerTab({
   const [creating, setCreating] = useState<CreatingState | null>(null);
   const [creatingName, setCreatingName] = useState("");
   const [deletingNode, setDeletingNode] = useState<TreeNode | null>(null);
+  const [graphFocus, setGraphFocus] = useState<GraphFocus | null>(null);
+
+  // Focusing shows the graph, so close any open note first.
+  const focusGraph = useCallback((focus: GraphFocus | null) => {
+    setGraphFocus(focus);
+    if (focus) setOpenFile(null);
+  }, []);
 
   // Load all bucket trees on mount
   const loadBucketTree = useCallback(async (bucket: VaultBucket) => {
@@ -1008,6 +1323,10 @@ function ExplorerTab({
                   {/* Bucket header */}
                   <div
                     className="vault-bucket-root-row"
+                    onContextMenu={(e) => {
+                      if (!bucketPath) return;
+                      handleContextMenu(e, { name: bucket.name, relPath: "", fullPath: bucketPath, type: "dir" }, bucket.id, bucketPath);
+                    }}
                     onDragOver={(e) => { if (bucketPath) e.preventDefault(); }}
                     onDrop={(e) => {
                       if (!bucketPath) return;
@@ -1108,6 +1427,8 @@ function ExplorerTab({
             <VaultGraph
               buckets={buckets}
               bucketTrees={bucketTrees}
+              focus={graphFocus}
+              onFocus={focusGraph}
               onOpenFile={openFileNode}
             />
           )}
@@ -1123,6 +1444,11 @@ function ExplorerTab({
             onNewFile={(p) => startCreating(p, "file")}
             onNewFolder={(p) => startCreating(p, "folder")}
             onDelete={(node) => { setCtxMenu(null); handleDelete(node); }}
+            onFocus={(node) => focusGraph({
+              fullPath: node.fullPath,
+              label: node.relPath === "" ? (buckets.find((b) => b.id === ctxMenu.bucketId)?.name ?? node.name) : node.name,
+              bucketId: ctxMenu.bucketId,
+            })}
             onClose={() => setCtxMenu(null)}
           />
         </>
