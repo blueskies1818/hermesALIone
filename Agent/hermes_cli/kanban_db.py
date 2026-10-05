@@ -309,6 +309,26 @@ def board_exists(board: Optional[str] = None) -> bool:
     return (d / "board.json").exists() or (d / "kanban.db").exists()
 
 
+# Theta: in-process "dispatch now" signal. Tasks created by agents running
+# inside the gateway wake the embedded dispatcher immediately instead of
+# waiting for the next tick (up to dispatch_interval_seconds).
+import threading as _threading
+
+_dispatch_wake = _threading.Event()
+
+
+def request_dispatch() -> None:
+    _dispatch_wake.set()
+
+
+def consume_dispatch_request() -> bool:
+    """Return True (and clear the flag) if a dispatch was requested."""
+    if _dispatch_wake.is_set():
+        _dispatch_wake.clear()
+        return True
+    return False
+
+
 def kanban_db_path(board: Optional[str] = None) -> Path:
     """Return the path to the ``kanban.db`` for ``board``.
 

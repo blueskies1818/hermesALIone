@@ -965,6 +965,19 @@ function setupIPC(): void {
     return listSessions(limit, offset);
   });
 
+  // Theta: current agent (and project) of a conversation, for the chat header
+  ipcMain.handle("get-session-agent", async (_event, sessionId: string) => {
+    if (typeof sessionId !== "string" || !sessionId) return null;
+    try {
+      const { ok, data } = await apiFetch(
+        `/api/sessions/${encodeURIComponent(sessionId)}/agent`,
+      );
+      return ok ? data : null;
+    } catch {
+      return null;
+    }
+  });
+
   ipcMain.handle("get-session-messages", (_event, sessionId: string) => {
     const conn = getConnectionConfig();
     if (conn.mode === "ssh" && conn.ssh)

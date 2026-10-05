@@ -2552,9 +2552,27 @@ async def get_session_messages(session_id: str):
         if not sid:
             raise HTTPException(status_code=404, detail="Session not found")
         messages = db.get_messages(sid)
-        return {"session_id": sid, "messages": messages}
+        # Theta: hide worker-update plumbing that the user never typed.
+        from gateway.session_inbox import clean_history_for_display
+
+        return {"session_id": sid, "messages": clean_history_for_display(messages)}
     finally:
         db.close()
+
+
+@app.get("/api/sessions/{session_id}/agent")
+async def get_session_agent_info(session_id: str):
+    """Theta: which agent a conversation is talking to, and its project."""
+    from gateway import agent_roster
+
+    name = agent_roster.get_session_agent(session_id)
+    info = next((a for a in agent_roster.list_agents() if a["name"] == name), {})
+    return {
+        "session_id": session_id,
+        "agent": name,
+        "description": info.get("description", ""),
+        "project": agent_roster.get_session_project(session_id),
+    }
 
 
 @app.delete("/api/sessions/{session_id}")

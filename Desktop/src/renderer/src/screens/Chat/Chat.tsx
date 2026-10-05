@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
-import { ChatHeader } from "./ChatHeader";
+import { ChatHeader, type SessionAgentInfo } from "./ChatHeader";
 import { ChatEmptyState } from "./ChatEmptyState";
 import { MessageList } from "./MessageList";
 import { ModelPicker } from "./ModelPicker";
@@ -133,6 +133,24 @@ function Chat({
   // session prop so that replies continue the correct session.
   const effectiveSessionId = hermesSessionId ?? sessionId;
 
+  // Theta: show which agent this conversation is talking to (and its
+  // project). Refreshed after each reply and right after an agent switch.
+  const [agentInfo, setAgentInfo] = useState<SessionAgentInfo | null>(null);
+  const refreshAgentInfo = useCallback(() => {
+    if (!effectiveSessionId) { setAgentInfo(null); return; }
+    window.hermesAPI.getSessionAgent(effectiveSessionId)
+      .then((info) => setAgentInfo(info))
+      .catch(() => {});
+  }, [effectiveSessionId]);
+  useEffect(() => { refreshAgentInfo(); }, [refreshAgentInfo]);
+  useEffect(() => {
+    const offDone = window.hermesAPI.onChatDone(() => refreshAgentInfo());
+    const offTool = window.hermesAPI.onChatToolProgress((tool) => {
+      if (tool && /now talking to|set_project|switch_agent/i.test(tool)) refreshAgentInfo();
+    });
+    return () => { offDone(); offTool(); };
+  }, [refreshAgentInfo]);
+
   const actions = useChatActions({
     profile,
     hermesSessionId: effectiveSessionId,
@@ -209,6 +227,7 @@ function Chat({
     >
       <ChatHeader
         sessionId={sessionId}
+        agentInfo={agentInfo}
         usage={usage}
         fastMode={fastMode}
         hasMessages={messages.length > 0}

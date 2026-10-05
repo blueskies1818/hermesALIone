@@ -768,6 +768,8 @@ def _handle_create(args: dict, **kw) -> str:
                 session_id=session_id,
             )
             new_task = kb.get_task(conn, new_tid)
+            # Theta: start it now if the dispatcher runs in this process.
+            kb.request_dispatch()
             return _ok(
                 task_id=new_tid,
                 status=new_task.status if new_task else None,

@@ -222,3 +222,16 @@ class TestDeliverables:
 
         text = inbox.pending("s")[0].text
         assert "Wrote it." in text and "Content of result.md:\n# Result\nAll done." in text
+
+
+def test_clean_history_hides_update_plumbing():
+    msgs = [
+        {"role": "user", "content": "build it"},
+        {"role": "assistant", "content": "on it"},
+        {"role": "user", "content": "[Updates from the work agent]\n- Task done."},
+        {"role": "assistant", "content": "It's done."},
+        {"role": "user", "content": "[Updates from the work agent]\n- x\n\n[User message]\nthanks!"},
+    ]
+    out = inbox.clean_history_for_display(msgs)
+    assert [m["content"] for m in out] == ["build it", "on it", "It's done.", "thanks!"]
+    assert msgs[4]["content"].startswith("[Updates")  # input not mutated

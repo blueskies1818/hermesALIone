@@ -272,6 +272,9 @@ interface HermesAPI {
       preview: string;
     }>
   >;
+  getSessionAgent: (
+    sessionId: string,
+  ) => Promise<{ agent: string; description: string; project: string | null } | null>;
   getSessionMessages: (sessionId: string) => Promise<
     Array<{
       id: number;

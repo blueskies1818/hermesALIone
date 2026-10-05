@@ -179,6 +179,15 @@ def _index_bucket(conn, vault_dir: Path, bucket_id: str,
 # Handlers
 # ---------------------------------------------------------------------------
 
+def _bucket_json_name(bucket_dir: Path, fallback: str) -> str:
+    """Display name from a bucket's bucket.json, else ``fallback``."""
+    try:
+        meta = json.loads((bucket_dir / "bucket.json").read_text(encoding="utf-8"))
+        return str(meta.get("name") or fallback)
+    except (OSError, ValueError):
+        return fallback
+
+
 def _auto_discover_buckets(conn, vault_dir: Path) -> None:
     """Register any vault subdirectories not yet in the DB.
 
@@ -388,6 +397,7 @@ def _handle_create_bucket(args: Dict, **kw) -> str:
     index = _load_index(vault_dir)
     if bucket_id not in index["buckets"]:
         index["buckets"][bucket_id] = {
+            "name": name,
             "path": bucket_id,
             "description": description,
         }
@@ -433,7 +443,8 @@ def _handle_reindex(args: Dict, **kw) -> str:
                 vault_db.upsert_bucket(
                     conn,
                     bkt_id,
-                    bkt_meta.get("name", bkt_id),
+                    bkt_meta.get("name") or _bucket_json_name(
+                        vault_dir / bkt_meta.get("path", bkt_id), bkt_id),
                     bkt_meta.get("description", ""),
                     bkt_meta.get("path", bkt_id),
                 )

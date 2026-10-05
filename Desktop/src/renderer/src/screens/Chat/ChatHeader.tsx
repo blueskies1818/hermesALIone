@@ -1,10 +1,17 @@
 import { memo } from "react";
-import { Trash2 as Trash, Plus, Zap } from "lucide-react";
+import { Trash2 as Trash, Plus, Zap, Bot, Folder } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
 import type { UsageState } from "./types";
 
+export interface SessionAgentInfo {
+  agent: string;
+  description: string;
+  project: string | null;
+}
+
 interface ChatHeaderProps {
   sessionId: string | null;
+  agentInfo?: SessionAgentInfo | null;
   usage: UsageState | null;
   fastMode: boolean;
   hasMessages: boolean;
@@ -31,6 +38,7 @@ function UsageBadge({ usage }: { usage: UsageState }): React.JSX.Element {
 
 export const ChatHeader = memo(function ChatHeader({
   sessionId,
+  agentInfo,
   usage,
   fastMode,
   hasMessages,
@@ -48,6 +56,21 @@ export const ChatHeader = memo(function ChatHeader({
             ? t("chat.sessionTitle", { id: sessionId.slice(-6) })
             : t("chat.title")}
         </div>
+        {agentInfo && (
+          <span
+            className="chat-agent-chip"
+            title={agentInfo.description || `Talking to ${agentInfo.agent}`}
+          >
+            <Bot size={12} />
+            {agentInfo.agent === "default" ? "Theta" : agentInfo.agent}
+          </span>
+        )}
+        {agentInfo?.project && (
+          <span className="chat-agent-chip chat-project-chip" title="Project">
+            <Folder size={12} />
+            {agentInfo.project}
+          </span>
+        )}
         {usage && <UsageBadge usage={usage} />}
       </div>
       <div className="chat-header-actions">

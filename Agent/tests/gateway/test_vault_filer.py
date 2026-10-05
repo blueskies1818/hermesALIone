@@ -221,3 +221,12 @@ def test_fallback_summary_is_readable():
     info = vf._fallback_summary("User: Plan my garden\n\nAgent: Working on it\n\nAgent: Done, plan.md written")
     assert info["title"] == "Plan my garden"
     assert info["summary"] == "Asked: Plan my garden Last reply: Done, plan.md written"
+
+
+def test_project_keeps_display_name_after_reindex():
+    from tools import vault_tool
+
+    vf.project_dir("Garden App")
+    vault_tool._handle_reindex({})
+    names = {b["id"]: b["name"] for b in json.loads(vault_tool._handle_list_buckets({}))["buckets"]}
+    assert names["garden-app"] == "Garden App"

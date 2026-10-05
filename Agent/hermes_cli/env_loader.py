@@ -164,6 +164,16 @@ def load_hermes_dotenv(
     if project_env_path and project_env_path.exists():
         _sanitize_env_file_if_needed(project_env_path)
 
+    # Theta: a profile home (<root>/profiles/<name>) inherits the root .env
+    # first, so provider keys live in one place; the profile's own .env can
+    # still override individual values.
+    if home_path.parent.name == "profiles":
+        root_env = home_path.parent.parent / ".env"
+        if root_env.exists() and root_env.resolve() != user_env.resolve():
+            _sanitize_env_file_if_needed(root_env)
+            _load_dotenv_with_fallback(root_env, override=True)
+            loaded.append(root_env)
+
     if user_env.exists():
         _load_dotenv_with_fallback(user_env, override=True)
         loaded.append(user_env)

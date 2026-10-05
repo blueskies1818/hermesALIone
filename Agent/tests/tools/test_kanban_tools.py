@@ -1716,3 +1716,15 @@ def test_board_param_in_all_schemas():
         assert "board" not in schema["parameters"].get("required", []), (
             f"{schema['name']} marks board as required; must be optional"
         )
+
+
+def test_create_requests_immediate_dispatch(worker_env):
+    """Theta: a new task wakes the in-process dispatcher right away."""
+    from hermes_cli import kanban_db as kb
+    from tools import kanban_tools as kt
+
+    kb.consume_dispatch_request()  # start clean
+    out = json.loads(kt._handle_create({"title": "now please", "assignee": "peer"}))
+    assert out["ok"] is True
+    assert kb.consume_dispatch_request() is True
+    assert kb.consume_dispatch_request() is False

@@ -5408,8 +5408,11 @@ class GatewayRunner:
 
             # Sleep in 1s slices so shutdown is snappy — otherwise a stop()
             # waits up to `interval` seconds for the current sleep to finish.
+            # Theta: a task created in-process wakes the loop right away.
             slept = 0.0
             while slept < interval and self._running:
+                if _kb.consume_dispatch_request():
+                    break
                 await asyncio.sleep(min(1.0, interval - slept))
                 slept += 1.0
 

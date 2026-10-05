@@ -50,6 +50,21 @@ _PROFILE_DIRS = [
 ]
 
 # Files copied during --clone (if they exist in the source)
+def write_env_without_secrets(src: Path, dst: Path) -> int:
+    """Copy a .env file minus secret-named entries; return how many were dropped."""
+    from agent.theta_guard import is_secret_env_name
+
+    kept, dropped = [], 0
+    for line in src.read_text(encoding="utf-8", errors="ignore").splitlines():
+        name = line.split("=", 1)[0].strip().removeprefix("export ").strip()
+        if "=" in line and not line.lstrip().startswith("#") and is_secret_env_name(name):
+            dropped += 1
+            continue
+        kept.append(line)
+    dst.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    return dropped
+
+
 _CLONE_CONFIG_FILES = [
     "config.yaml",
     ".env",
@@ -719,7 +734,13 @@ def create_profile(
         if source_dir is not None:
             for filename in _CLONE_CONFIG_FILES:
                 src = source_dir / filename
-                if src.exists():
+                if not src.exists():
+                    continue
+                if filename == ".env":
+                    # Theta: never copy secrets; profiles inherit them from
+                    # the root .env (see env_loader.load_hermes_dotenv).
+                    write_env_without_secrets(src, profile_dir / filename)
+                else:
                     shutil.copy2(src, profile_dir / filename)
 
             # Clone installed skills from the source profile. The dashboard's

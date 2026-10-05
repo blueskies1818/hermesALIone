@@ -344,6 +344,10 @@ const hermesAPI = {
     }>
   > => ipcRenderer.invoke("list-sessions", limit, offset),
 
+  getSessionAgent: (
+    sessionId: string,
+  ): Promise<{ agent: string; description: string; project: string | null } | null> =>
+    ipcRenderer.invoke("get-session-agent", sessionId),
   getSessionMessages: (
     sessionId: string,
   ): Promise<
