@@ -103,3 +103,12 @@ class TestRewind:
             assert [m["content"] for m in db.get_messages("rw-1")] == ["q1", "a1"]
         finally:
             db.close()
+
+
+def test_deepseek_flash_is_a_thinking_model():
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location(
+        "ds_plugin", pathlib.Path(__file__).resolve().parents[2] / "plugins/model-providers/deepseek/__init__.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    assert mod._model_supports_thinking("deepseek-flash")
+    assert not mod._model_supports_thinking("deepseek-chat")

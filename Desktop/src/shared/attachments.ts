@@ -3,6 +3,28 @@
 
 export type AttachmentKind = "image" | "text-file" | "path-ref";
 
+/** Theta: one tool call shown in the chat's steps panel. */
+export interface ToolStep {
+  id: string;
+  tool: string;
+  label: string;
+  emoji?: string;
+  status: "running" | "completed";
+  args?: string;
+  result?: string;
+}
+
+/** Theta: payload of a hermes.tool.progress event. */
+export interface ToolEvent {
+  tool?: string;
+  label?: string;
+  emoji?: string;
+  toolCallId?: string;
+  status?: string;
+  args?: string;
+  result?: string;
+}
+
 export interface Attachment {
   id: string;
   kind: AttachmentKind;

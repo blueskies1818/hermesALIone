@@ -261,3 +261,11 @@ class TestDeepseekCanonicalAndReasonerMapping:
     ])
     def test_unknown_names_fall_back_to_chat(self, model):
         assert _normalize_for_deepseek(model) == "deepseek-chat"
+
+
+def test_theta_deepseek_v41_api_names_pass_through():
+    """DeepSeek's /models lists deepseek-flash / deepseek-pro; never fold them into deepseek-chat."""
+    from hermes_cli.model_normalize import _normalize_for_deepseek
+
+    assert _normalize_for_deepseek("deepseek-flash") == "deepseek-flash"
+    assert _normalize_for_deepseek("deepseek/deepseek-pro") == "deepseek-pro"

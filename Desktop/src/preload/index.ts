@@ -250,6 +250,19 @@ const hermesAPI = {
     return () => ipcRenderer.removeListener("chat-done", handler);
   },
 
+  onChatToolEvent: (
+    callback: (event: Record<string, unknown>) => void,
+  ): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, payload: Record<string, unknown>): void =>
+      callback(payload);
+    ipcRenderer.on("chat-tool-event", handler);
+    return () => ipcRenderer.removeListener("chat-tool-event", handler);
+  },
+  onChatReasoning: (callback: (text: string) => void): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, text: string): void => callback(text);
+    ipcRenderer.on("chat-reasoning", handler);
+    return () => ipcRenderer.removeListener("chat-reasoning", handler);
+  },
   onChatToolProgress: (callback: (tool: string) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, tool: string): void =>
       callback(tool);

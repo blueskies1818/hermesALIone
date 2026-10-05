@@ -225,6 +225,8 @@ interface HermesAPI {
   onChatChunk: (callback: (chunk: string) => void) => () => void;
   onChatDone: (callback: (sessionId?: string) => void) => () => void;
   onChatToolProgress: (callback: (tool: string) => void) => () => void;
+  onChatToolEvent: (callback: (event: Record<string, unknown>) => void) => () => void;
+  onChatReasoning: (callback: (text: string) => void) => () => void;
   onChatUsage: (
     callback: (usage: {
       promptTokens: number;

@@ -1,15 +1,20 @@
 export type {
   Attachment,
   AttachmentKind,
+  ToolStep,
 } from "../../../../shared/attachments";
 
-import type { Attachment } from "../../../../shared/attachments";
+import type { Attachment, ToolStep } from "../../../../shared/attachments";
 
 export interface ChatMessage {
   id: string;
   role: "user" | "agent";
   content: string;
   attachments?: Attachment[];
+  /** Theta: tool calls made while producing this reply. */
+  steps?: ToolStep[];
+  /** Theta: the model's streamed reasoning for this reply. */
+  reasoning?: string;
 }
 
 export interface ModelGroup {

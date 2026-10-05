@@ -47,7 +47,10 @@ export const MessageList = memo(function MessageList({
   onEdit,
 }: MessageListProps): React.JSX.Element {
   const visibleMessages = useMemo(
-    () => messages.filter((m) => (m.content || "").trim()),
+    () =>
+      messages.filter(
+        (m) => (m.content || "").trim() || (m.steps?.length ?? 0) > 0 || (m.reasoning || "").trim(),
+      ),
     [messages],
   );
 

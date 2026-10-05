@@ -27,7 +27,7 @@ import {
 import { pidIsAliveAs, stripAnsi } from "./utils";
 import { readModels } from "./models";
 import { HIDDEN_SUBPROCESS_OPTIONS } from "./process-options";
-import { type Attachment, escapeXmlAttr } from "../shared/attachments";
+import { type Attachment, type ToolEvent, escapeXmlAttr } from "../shared/attachments";
 
 const LOCAL_REST_URL = "http://127.0.0.1:9119";
 
@@ -322,6 +322,10 @@ export interface ChatCallbacks {
   onDone: (sessionId?: string) => void;
   onError: (error: string) => void;
   onToolProgress?: (tool: string) => void;
+  /** Theta: full tool event (args/result previews) for the steps panel. */
+  onToolEvent?: (event: ToolEvent) => void;
+  /** Theta: streamed model reasoning for the Thinking section. */
+  onReasoning?: (text: string) => void;
   onTtsAudio?: (base64Chunk: string) => void;
   onUsage?: (usage: {
     promptTokens: number;
@@ -509,12 +513,22 @@ function sendMessageViaApi(
 
   /** Handle a custom SSE event (non-data lines with `event:` prefix). */
   function processCustomEvent(eventType: string, data: string): void {
-    if (eventType === "hermes.tool.progress" && cb.onToolProgress) {
+    if (eventType === "hermes.tool.progress" && (cb.onToolProgress || cb.onToolEvent)) {
       try {
         const payload = JSON.parse(data);
         const label = payload.label || payload.tool || "";
         const emoji = payload.emoji || "";
-        cb.onToolProgress(emoji ? `${emoji} ${label}` : label);
+        if (payload.status !== "completed" || !payload.toolCallId) {
+          cb.onToolProgress?.(emoji ? `${emoji} ${label}` : label);
+        }
+        cb.onToolEvent?.(payload as ToolEvent);
+      } catch {
+        /* malformed — skip */
+      }
+    } else if (eventType === "hermes.reasoning" && cb.onReasoning) {
+      try {
+        const payload = JSON.parse(data);
+        if (typeof payload.text === "string") cb.onReasoning(payload.text);
       } catch {
         /* malformed — skip */
       }

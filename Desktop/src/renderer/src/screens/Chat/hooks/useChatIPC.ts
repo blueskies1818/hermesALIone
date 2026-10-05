@@ -1,5 +1,15 @@
 import { useEffect } from "react";
-import type { ChatMessage, UsageState } from "../types";
+import type { ChatMessage, ToolStep, UsageState } from "../types";
+
+/** Apply `fn` to the reply being built this turn, creating it if needed. */
+function updateCurrentReply(
+  prev: ChatMessage[],
+  fn: (msg: ChatMessage) => ChatMessage,
+): ChatMessage[] {
+  const last = prev[prev.length - 1];
+  if (last && last.role === "agent") return [...prev.slice(0, -1), fn(last)];
+  return [...prev, fn({ id: `agent-${Date.now()}`, role: "agent", content: "" })];
+}
 
 interface UseChatIPCArgs {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
@@ -65,6 +75,43 @@ export function useChatIPC({
       setIsLoading(false);
     });
 
+    // Theta: steps panel + thinking section on the reply being built.
+    const cleanupToolEvent = window.hermesAPI.onChatToolEvent((raw) => {
+      const ev = raw as {
+        tool?: string; label?: string; emoji?: string; toolCallId?: string;
+        status?: string; args?: string; result?: string;
+      };
+      if (!ev.toolCallId) return;
+      setStreamStarted(true);
+      setMessages((prev) =>
+        updateCurrentReply(prev, (msg) => {
+          const steps = [...(msg.steps ?? [])];
+          const i = steps.findIndex((s) => s.id === ev.toolCallId);
+          if (ev.status === "completed") {
+            if (i >= 0) steps[i] = { ...steps[i], status: "completed", result: ev.result };
+          } else if (i < 0) {
+            const step: ToolStep = {
+              id: ev.toolCallId!,
+              tool: ev.tool || "tool",
+              label: ev.label || ev.tool || "tool",
+              emoji: ev.emoji,
+              status: "running",
+              args: ev.args,
+            };
+            steps.push(step);
+          }
+          return { ...msg, steps };
+        }),
+      );
+    });
+
+    const cleanupReasoning = window.hermesAPI.onChatReasoning((text) => {
+      setStreamStarted(true);
+      setMessages((prev) =>
+        updateCurrentReply(prev, (msg) => ({ ...msg, reasoning: (msg.reasoning ?? "") + text })),
+      );
+    });
+
     const cleanupToolProgress = window.hermesAPI.onChatToolProgress((tool) => {
       setStreamStarted(true);
       setToolProgress(tool);
@@ -84,6 +131,8 @@ export function useChatIPC({
       cleanupDone();
       cleanupError();
       cleanupToolProgress();
+      cleanupToolEvent();
+      cleanupReasoning();
       cleanupUsage();
     };
   }, [

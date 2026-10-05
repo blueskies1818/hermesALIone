@@ -589,6 +589,27 @@ def _make_request_fingerprint(body: Dict[str, Any], keys: List[str]) -> str:
     return sha256(repr(subset).encode("utf-8")).hexdigest()
 
 
+def _step_preview(value: Any, limit: int) -> str:
+    """Short, secret-redacted text preview of tool args/results (Theta)."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        text = value
+    else:
+        try:
+            text = json.dumps(value, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            text = str(value)
+    try:
+        from agent.theta_guard import redact_known_secrets
+        from agent.redact import redact_sensitive_text
+
+        text = redact_sensitive_text(redact_known_secrets(text))
+    except Exception:
+        pass
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _derive_chat_session_id(
     system_prompt: Optional[str],
     first_user_message: str,
@@ -868,6 +889,7 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_complete_callback=None,
         gateway_session_key: Optional[str] = None,
         agent_config: Optional[dict] = None,
+        reasoning_callback=None,
     ) -> Any:
         """
         Create an AIAgent instance using the gateway's runtime config.
@@ -924,6 +946,7 @@ class APIServerAdapter(BasePlatformAdapter):
             tool_progress_callback=tool_progress_callback,
             tool_start_callback=tool_start_callback,
             tool_complete_callback=tool_complete_callback,
+            reasoning_callback=reasoning_callback,
             session_db=self._ensure_session_db(),
             fallback_model=fallback_model,
             reasoning_config=reasoning_config,
@@ -1500,6 +1523,8 @@ class APIServerAdapter(BasePlatformAdapter):
                     "label": label,
                     "toolCallId": tool_call_id,
                     "status": "running",
+                    # Theta: argument preview for the app's steps panel
+                    "args": _step_preview(function_args, 1500),
                 }))
 
             def _on_tool_complete(tool_call_id, function_name, function_args, function_result):
@@ -1516,6 +1541,8 @@ class APIServerAdapter(BasePlatformAdapter):
                     "tool": function_name,
                     "toolCallId": tool_call_id,
                     "status": "completed",
+                    # Theta: result preview for the app's steps panel
+                    "result": _step_preview(function_result, 2000),
                 }))
 
             # Start agent in background.  agent_ref is a mutable container
@@ -1526,6 +1553,11 @@ class APIServerAdapter(BasePlatformAdapter):
             # side-by-side with ``tool_start_callback``/``tool_complete_callback``.
             # The structured callbacks are strictly richer (they carry the
             # tool_call id), so they own the chat-completions SSE channel.
+            def _on_reasoning(text):
+                """Theta: stream the model's reasoning for the app's Thinking section."""
+                if text:
+                    _stream_q.put(("__reasoning__", text))
+
             def _on_agent_switch(new_agent, previous_agent):
                 """Theta: tell the client which agent is now answering."""
                 _stream_q.put(("__tool_progress__", {
@@ -1549,6 +1581,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 agent_ref=agent_ref,
                 gateway_session_key=gateway_session_key,
                 agent_switch_callback=_on_agent_switch,
+                reasoning_callback=_on_reasoning,
             ))
             # Ensure SSE drain loops can terminate without relying on polling
             # agent_task.done(), which can race with queue timeout checks.
@@ -1775,6 +1808,11 @@ class APIServerAdapter(BasePlatformAdapter):
                     event_data = json.dumps(item[1])
                     await response.write(
                         f"event: hermes.tool.progress\ndata: {event_data}\n\n".encode()
+                    )
+                elif isinstance(item, tuple) and len(item) == 2 and item[0] == "__reasoning__":
+                    event_data = json.dumps({"text": item[1]})
+                    await response.write(
+                        f"event: hermes.reasoning\ndata: {event_data}\n\n".encode()
                     )
                 else:
                     content_chunk = {
@@ -3145,6 +3183,7 @@ class APIServerAdapter(BasePlatformAdapter):
         gateway_session_key: Optional[str] = None,
         agent_switch_callback=None,
         include_inbox: bool = True,
+        reasoning_callback=None,
     ) -> tuple:
         """
         Create an agent and run a conversation in a thread executor.
@@ -3179,6 +3218,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     tool_complete_callback=tool_complete_callback,
                     gateway_session_key=gateway_session_key,
                     agent_config=agent_config,
+                    reasoning_callback=reasoning_callback,
                 )
                 if agent_ref is not None:
                     agent_ref[0] = agent

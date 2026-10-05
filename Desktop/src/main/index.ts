@@ -781,6 +781,12 @@ function setupIPC(): void {
           onToolProgress: (tool) => {
             event.sender.send("chat-tool-progress", tool);
           },
+          onToolEvent: (toolEvent) => {
+            event.sender.send("chat-tool-event", toolEvent);
+          },
+          onReasoning: (text) => {
+            event.sender.send("chat-reasoning", text);
+          },
           onUsage: (usage) => {
             event.sender.send("chat-usage", usage);
           },

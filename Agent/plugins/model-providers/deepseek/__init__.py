@@ -41,6 +41,9 @@ def _model_supports_thinking(model: str | None) -> bool:
         return True
     if m == "deepseek-reasoner":
         return True
+    # Theta: V4.1 API names (deepseek-flash, deepseek-pro) are thinking models.
+    if m in ("deepseek-flash", "deepseek-pro") or m.startswith(("deepseek-flash-", "deepseek-pro-")):
+        return True
     return False
 
 

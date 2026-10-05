@@ -8650,3 +8650,99 @@ body {
   color: var(--text-muted);
 }
 
+
+/* ===== Theta: agent steps panel (thinking + tool calls) ===== */
+.agent-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.agent-steps:last-child { margin-bottom: 0; }
+.agent-steps-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 2px 6px 2px 2px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.agent-steps-toggle:hover { color: var(--text-primary); background: var(--bg-hover); }
+.agent-step-chevron { transition: transform 0.15s; flex-shrink: 0; }
+.agent-step-chevron.open { transform: rotate(90deg); }
+.agent-thinking {
+  margin: 4px 0 4px 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--border-bright);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.agent-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 2px 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border-bright);
+}
+.agent-step-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 3px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.agent-step-head:disabled { cursor: default; }
+.agent-step-head:hover:not(:disabled) { background: var(--bg-hover); }
+.agent-step-emoji { flex-shrink: 0; }
+.agent-step-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 12px;
+}
+.agent-step-status { color: var(--text-muted); display: flex; }
+.agent-step-completed .agent-step-status { color: var(--success); }
+.agent-step-detail { padding: 2px 4px 6px 22px; }
+.agent-step-detail-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 6px 0 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.agent-step-pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agent-spin { animation: agent-spin 1s linear infinite; }
+@keyframes agent-spin { to { transform: rotate(360deg); } }
