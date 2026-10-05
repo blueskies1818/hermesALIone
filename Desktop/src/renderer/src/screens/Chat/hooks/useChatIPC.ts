@@ -8,7 +8,7 @@ function updateCurrentReply(
 ): ChatMessage[] {
   const last = prev[prev.length - 1];
   if (last && last.role === "agent") return [...prev.slice(0, -1), fn(last)];
-  return [...prev, fn({ id: `agent-${Date.now()}`, role: "agent", content: "" })];
+  return [...prev, fn({ id: `agent-${Date.now()}`, role: "agent", content: "", createdAt: Date.now() })];
 }
 
 interface UseChatIPCArgs {
@@ -49,7 +49,7 @@ export function useChatIPC({
         if (!chunk || !chunk.trim()) return prev;
         return [
           ...prev,
-          { id: `agent-${Date.now()}`, role: "agent", content: chunk },
+          { id: `agent-${Date.now()}`, role: "agent", content: chunk, createdAt: Date.now() },
         ];
       });
     });

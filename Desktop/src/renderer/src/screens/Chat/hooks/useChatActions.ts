@@ -68,6 +68,7 @@ export function useChatActions({
           id: `${idPrefix}-${Date.now()}`,
           role: "user",
           content,
+          createdAt: Date.now(),
           ...(attachments && attachments.length > 0 ? { attachments } : {}),
         },
       ]);

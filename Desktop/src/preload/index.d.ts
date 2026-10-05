@@ -209,6 +209,7 @@ interface HermesAPI {
     fileName: string,
     markdown: string,
   ) => Promise<{ ok: boolean; canceled?: boolean; savedTo?: string; error?: string }>;
+  followUpSuggestions: (user: string, assistant: string) => Promise<string[]>;
   speakText: (text: string) => Promise<{ success: boolean; chunks?: string[]; error?: string }>;
   getPathForFile: (file: File) => string;
   stageAttachment: (

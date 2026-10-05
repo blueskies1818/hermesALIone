@@ -225,7 +225,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     function handleSend(): void {
       const text = input.trim();
       const hasPayload = text.length > 0 || attachments.length > 0;
-      if (!hasPayload || isLoading) return;
+      // While a reply runs, the parent queues the message (Theta).
+      if (!hasPayload) return;
       setSlashMenuOpen(false);
       const sendAttachments = attachments;
       clearAfterSend(text);
@@ -362,8 +363,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       setAttachmentError(null);
     }
 
-    const canSend =
-      (input.trim().length > 0 || attachments.length > 0) && !isLoading;
+    const canSend = input.trim().length > 0 || attachments.length > 0;
 
     return (
       <>
@@ -453,13 +453,24 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             autoFocus
           />
           {isLoading ? (
-            <button
-              className="chat-send-btn chat-stop-btn"
-              onClick={onAbort}
-              title={t("common.stop")}
-            >
-              <Stop size={14} />
-            </button>
+            <>
+              {canSend && (
+                <button
+                  className="chat-send-btn chat-queue-btn"
+                  onClick={handleSend}
+                  title="Queue — sends when the current reply finishes"
+                >
+                  <Send size={16} />
+                </button>
+              )}
+              <button
+                className="chat-send-btn chat-stop-btn"
+                onClick={onAbort}
+                title={t("common.stop")}
+              >
+                <Stop size={14} />
+              </button>
+            </>
           ) : (
             <>
               {input.trim() && hasSession && (

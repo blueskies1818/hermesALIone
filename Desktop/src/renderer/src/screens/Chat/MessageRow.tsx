@@ -36,6 +36,19 @@ interface MessageRowProps {
   editSignal?: number;
 }
 
+/** "14:05" today, "Mar 3, 14:05" otherwise. */
+export function formatMessageTime(ms: number, now: Date = new Date()): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return time;
+  const date = d.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+  });
+  return `${date}, ${time}`;
+}
+
 /** Messages the user can edit and resend (not slash-command echoes). */
 export function isEditable(msg: ChatMessage): boolean {
   return (
@@ -145,6 +158,16 @@ export const MessageRow = memo(function MessageRow({
       </div>
       {!editing && msg.content && (
         <div className={`chat-msg-actions chat-msg-actions-${msg.role}`}>
+          {(msg.createdAt || msg.model) && (
+            <span
+              className="chat-msg-meta"
+              title={msg.createdAt ? new Date(msg.createdAt).toLocaleString() : undefined}
+            >
+              {[msg.createdAt ? formatMessageTime(msg.createdAt) : "", msg.model || ""]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          )}
           <button className="chat-msg-action" onClick={copyMessage} title="Copy">
             {copied ? <Check size={13} /> : <Copy size={13} />}
           </button>

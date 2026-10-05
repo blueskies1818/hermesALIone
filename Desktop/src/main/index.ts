@@ -836,6 +836,21 @@ function setupIPC(): void {
     return transcribeAudio(base64Audio);
   });
 
+  // Theta: follow-up suggestions after a reply (auxiliary model on the server)
+  ipcMain.handle("follow-up-suggestions", async (_event, user: string, assistant: string) => {
+    try {
+      const { ok, data } = await apiFetch("/api/suggestions", {
+        method: "POST",
+        body: { user: String(user || ""), assistant: String(assistant || "") },
+        timeoutMs: 30000,
+      });
+      const list = (data as { suggestions?: unknown } | null)?.suggestions;
+      return ok && Array.isArray(list) ? list.filter((s) => typeof s === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+
   // Theta: read a message aloud — synthesised on the server
   ipcMain.handle("speak-text", async (_event, text: string) => {
     if (typeof text !== "string" || !text.trim()) {

@@ -15,6 +15,10 @@ export interface ChatMessage {
   steps?: ToolStep[];
   /** Theta: the model's streamed reasoning for this reply. */
   reasoning?: string;
+  /** Theta: when the message was sent / the reply started (ms epoch). */
+  createdAt?: number;
+  /** Theta: model that produced this reply. */
+  model?: string;
 }
 
 export interface ModelGroup {

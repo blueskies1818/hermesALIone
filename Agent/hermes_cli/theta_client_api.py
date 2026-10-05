@@ -269,6 +269,20 @@ async def put_credential_pool(body: dict, profile: Optional[str] = None):
 # Provider model discovery
 # ---------------------------------------------------------------------------
 
+@router.post("/api/suggestions")
+async def follow_up_suggestions(body: dict):
+    """Theta: short follow-up questions for the chat after a reply."""
+    import asyncio
+
+    from agent.followups import generate_followups
+
+    user = str(body.get("user") or "")
+    assistant = str(body.get("assistant") or "")
+    if not assistant.strip():
+        return {"suggestions": []}
+    return {"suggestions": await asyncio.to_thread(generate_followups, user, assistant)}
+
+
 _DISCOVERY_CACHE: dict[tuple, tuple[float, list]] = {}
 _DISCOVERY_TTL = 600.0
 

@@ -1,4 +1,4 @@
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, Clock, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatHeader, type SessionAgentInfo } from "./ChatHeader";
@@ -16,7 +16,13 @@ import { useModelConfig } from "./hooks/useModelConfig";
 import { useFastMode } from "./hooks/useFastMode";
 import { useLocalCommands } from "./hooks/useLocalCommands";
 import { useI18n } from "../../components/useI18n";
-import type { ChatMessage, UsageState } from "./types";
+import type { Attachment, ChatMessage, UsageState } from "./types";
+
+interface QueuedMessage {
+  id: string;
+  text: string;
+  attachments?: Attachment[];
+}
 
 export type { ChatMessage } from "./types";
 
@@ -210,6 +216,76 @@ function Chat({
     chatInputRef.current?.setText(text);
   }, []);
 
+  // Theta: messages sent while the agent works wait in a queue and go out
+  // in order when the turn ends; follow-up suggestions after each reply.
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
+  const [followUps, setFollowUps] = useState<string[]>([]);
+  const followUpSeq = useRef(0);
+  const abortedRef = useRef(false);
+  const wasLoading = useRef(false);
+  const { handleSend, handleAbort } = actions;
+
+  const handleSubmit = useCallback(
+    (text: string, attachments?: Attachment[]) => {
+      followUpSeq.current++;
+      setFollowUps([]);
+      if (isLoading) {
+        setQueue((q) => [...q, { id: `queued-${Date.now()}`, text, attachments }]);
+        return;
+      }
+      void handleSend(text, attachments);
+    },
+    [isLoading, handleSend],
+  );
+
+  const handleStop = useCallback(() => {
+    abortedRef.current = true;
+    if (queue.length) {
+      // Give queued drafts back instead of dropping them.
+      chatInputRef.current?.setText(queue.map((q) => q.text).filter(Boolean).join("\n\n"));
+      setQueue([]);
+    }
+    handleAbort();
+  }, [queue, handleAbort]);
+
+  useEffect(() => {
+    const ended = wasLoading.current && !isLoading;
+    wasLoading.current = isLoading;
+    if (!ended) return;
+    const aborted = abortedRef.current;
+    abortedRef.current = false;
+
+    const last = messages[messages.length - 1];
+    const isReply = last?.role === "agent" && !/^(error|agent-local)-/.test(last.id);
+    const model = modelConfig.displayModel;
+    if (isReply && model && !last.model) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === last.id ? { ...m, model } : m)),
+      );
+    }
+    if (queue.length) {
+      const [next, ...rest] = queue;
+      setQueue(rest);
+      void handleSend(next.text, next.attachments);
+      return;
+    }
+    if (aborted || !isReply || !last.content.trim()) return;
+    const user = [...messages].reverse().find((m) => m.role === "user");
+    const seq = ++followUpSeq.current;
+    window.hermesAPI
+      .followUpSuggestions(user?.content || "", last.content)
+      .then((list) => { if (seq === followUpSeq.current) setFollowUps(list); })
+      .catch(() => {});
+    // Only the loading edge matters here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
+
+  // A new or switched conversation starts without stale suggestions.
+  useEffect(() => {
+    followUpSeq.current++;
+    setFollowUps([]);
+  }, [effectiveSessionId]);
+
   // Drag-and-drop: filter for dragenter events carrying files (suppresses
   // text-drag noise from the textarea autocomplete and other in-app drags).
   const eventHasFiles = useCallback((e: React.DragEvent): boolean => {
@@ -300,6 +376,15 @@ function Chat({
             editLastSignal={editLastSignal}
           />
         )}
+        {!isLoading && followUps.length > 0 && messages.length > 0 && (
+          <div className="chat-followups">
+            {followUps.map((f) => (
+              <button key={f} className="chat-followup" onClick={() => handleSubmit(f)}>
+                {f}
+              </button>
+            ))}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
       {isAwayFromBottom && (
@@ -309,15 +394,31 @@ function Chat({
       )}
 
       <div className="chat-input-area">
+        {queue.length > 0 && (
+          <div className="chat-queue">
+            {queue.map((q) => (
+              <div key={q.id} className="chat-queue-item" title="Sends when the current reply finishes">
+                <Clock size={12} />
+                <span>{q.text || `${q.attachments?.length ?? 0} attachment(s)`}</span>
+                <button
+                  onClick={() => setQueue((all) => all.filter((x) => x.id !== q.id))}
+                  title="Remove from queue"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <ChatInput
           ref={chatInputRef}
           isLoading={isLoading}
           hasSession={!!effectiveSessionId}
           sessionId={effectiveSessionId}
           remoteMode={remoteMode}
-          onSubmit={actions.handleSend}
+          onSubmit={handleSubmit}
           onQuickAsk={actions.handleQuickAsk}
-          onAbort={actions.handleAbort}
+          onAbort={handleStop}
           onEditLast={handleEditLast}
         />
         <ModelPicker

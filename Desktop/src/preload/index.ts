@@ -200,6 +200,8 @@ const hermesAPI = {
     markdown: string,
   ): Promise<{ ok: boolean; canceled?: boolean; savedTo?: string; error?: string }> =>
     ipcRenderer.invoke("export-conversation", kind, fileName, markdown),
+  followUpSuggestions: (user: string, assistant: string): Promise<string[]> =>
+    ipcRenderer.invoke("follow-up-suggestions", user, assistant),
   speakText: (text: string): Promise<{ success: boolean; chunks?: string[]; error?: string }> =>
     ipcRenderer.invoke("speak-text", text),
 

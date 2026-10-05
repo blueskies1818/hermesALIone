@@ -101,19 +101,16 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
     setView(v);
   }, []);
 
-  // Theta: Ctrl+K → search conversations
+  // Theta: Ctrl+K (app menu "Search Sessions") → search conversations
   const [sessionSearchSignal, setSessionSearchSignal] = useState(0);
-  useEffect(() => {
-    function onKey(e: KeyboardEvent): void {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
+  useEffect(
+    () =>
+      window.hermesAPI.onMenuSearchSessions(() => {
         goTo("sessions");
         setSessionSearchSignal((n) => n + 1);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [goTo]);
+      }),
+    [goTo],
+  );
 
   // Re-check connection mode on tab switch (picks up Settings changes)
   useEffect(() => {
@@ -214,6 +211,9 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
             id: String(m.id),
             role: (m.role === "assistant" ? "agent" : "user") as "agent" | "user",
             content: m.content,
+            ...(m.timestamp
+              ? { createdAt: m.timestamp < 1e12 ? m.timestamp * 1000 : m.timestamp }
+              : {}),
             ...(m.attachments ? { attachments: m.attachments } : {}),
           })),
       );
