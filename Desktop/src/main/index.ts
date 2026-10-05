@@ -951,6 +951,14 @@ function setupIPC(): void {
     const { ok, data } = await apiFetch("/api/files/content", { params: { path }, timeoutMs: 120000 });
     return ok ? data : null;
   });
+  // Canvas: save edited text back to the server file.
+  ipcMain.handle("save-file-content", async (_event, path: string, text: string) => {
+    const { ok, data } = await apiFetch("/api/files/content", {
+      method: "PUT",
+      body: { path, text },
+    });
+    return ok ? { ok: true } : { ok: false, error: String((data as { detail?: string })?.detail || "Save failed") };
+  });
   // Download: the user picks where to save it on this device.
   ipcMain.handle("save-file", async (event, path: string) => {
     const { ok, data } = await apiFetch("/api/files/content", { params: { path }, timeoutMs: 120000 });

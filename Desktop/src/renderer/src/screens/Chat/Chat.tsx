@@ -2,6 +2,7 @@ import { ArrowDown } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatHeader, type SessionAgentInfo } from "./ChatHeader";
+import { CanvasContext, CanvasPanel, type CanvasFile } from "./Canvas";
 import { ChatEmptyState } from "./ChatEmptyState";
 import { MessageList } from "./MessageList";
 import { ModelPicker } from "./ModelPicker";
@@ -134,6 +135,9 @@ function Chat({
   // session prop so that replies continue the correct session.
   const effectiveSessionId = hermesSessionId ?? sessionId;
 
+  // Theta: canvas side panel for files the agent wrote
+  const [canvasFile, setCanvasFile] = useState<CanvasFile | null>(null);
+
   // Theta: show which agent this conversation is talking to (and its
   // project). Refreshed after each reply and right after an agent switch.
   const [agentInfo, setAgentInfo] = useState<SessionAgentInfo | null>(null);
@@ -219,8 +223,9 @@ function Chat({
   );
 
   return (
+    <CanvasContext.Provider value={setCanvasFile}>
     <div
-      className="chat-container"
+      className={`chat-container${canvasFile ? " chat-container--canvas" : ""}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -288,7 +293,9 @@ function Chat({
           </div>
         </div>
       )}
+      {canvasFile && <CanvasPanel file={canvasFile} onClose={() => setCanvasFile(null)} />}
     </div>
+    </CanvasContext.Provider>
   );
 }
 

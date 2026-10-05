@@ -376,6 +376,8 @@ const hermesAPI = {
     path: string,
   ): Promise<{ name: string; mime: string; size: number; data: string } | null> =>
     ipcRenderer.invoke("file-content", path),
+  saveFileContent: (path: string, text: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("save-file-content", path, text),
   saveFile: (
     path: string,
   ): Promise<{ ok: boolean; savedTo?: string; canceled?: boolean; error?: string }> =>

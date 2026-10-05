@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
-import { Download, Eye, FileText, Image as ImageIcon, X } from "lucide-react";
+import { Download, Eye, FileText, Image as ImageIcon, PanelRight, X } from "lucide-react";
+import { useOpenCanvas } from "./Canvas";
 import { AgentMarkdown } from "../../components/AgentMarkdown";
 import { extractFilePaths, formatSize, previewKind } from "./fileRefs";
 import type { ToolStep } from "./types";
@@ -55,6 +56,7 @@ export const AgentFiles = memo(function AgentFiles({
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [preview, setPreview] = useState<OpenPreview | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const openCanvas = useOpenCanvas();
 
   useEffect(() => {
     if (live || paths.length === 0) return;
@@ -104,6 +106,15 @@ export const AgentFiles = memo(function AgentFiles({
               {kind !== "none" && kind !== "image" && (
                 <button className="agent-file-btn" onClick={() => open(f)} title="Preview">
                   <Eye size={14} />
+                </button>
+              )}
+              {openCanvas && (kind === "markdown" || kind === "text") && (
+                <button
+                  className="agent-file-btn"
+                  onClick={() => openCanvas({ path: f.resolved, name: f.name, mime: f.mime })}
+                  title="Open in canvas (edit)"
+                >
+                  <PanelRight size={14} />
                 </button>
               )}
               <button className="agent-file-btn" onClick={() => download(f)} title="Download">

@@ -291,6 +291,7 @@ interface HermesAPI {
   fileContent: (
     path: string,
   ) => Promise<{ name: string; mime: string; size: number; data: string } | null>;
+  saveFileContent: (path: string, text: string) => Promise<{ ok: boolean; error?: string }>;
   saveFile: (
     path: string,
   ) => Promise<{ ok: boolean; savedTo?: string; canceled?: boolean; error?: string }>;

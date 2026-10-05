@@ -186,3 +186,32 @@ class TestConversationManagement:
         archived = {s["id"] for s in asyncio.run(web_server.get_sessions(limit=50, archived=True))["sessions"]}
         assert "cm-3" in active and "cm-4" not in active
         assert archived == {"cm-4"}
+
+
+class TestCanvasSave:
+    def test_saves_text_inside_workspace_only(self, tmp_path):
+        from hermes_constants import get_default_hermes_root
+
+        ws = get_default_hermes_root() / "workspace"
+        ws.mkdir(parents=True, exist_ok=True)
+        doc = ws / "doc.md"
+        doc.write_text("old", encoding="utf-8")
+        out = asyncio.run(api.save_file_content({"path": str(doc), "text": "new text"}))
+        assert out["ok"] and doc.read_text(encoding="utf-8") == "new text"
+
+        outside = tmp_path / "x.md"
+        outside.write_text("keep", encoding="utf-8")
+        with pytest.raises(api.HTTPException):
+            asyncio.run(api.save_file_content({"path": str(outside), "text": "hacked"}))
+        assert outside.read_text(encoding="utf-8") == "keep"
+
+    def test_refuses_binary_files(self):
+        from hermes_constants import get_default_hermes_root
+
+        ws = get_default_hermes_root() / "workspace"
+        ws.mkdir(parents=True, exist_ok=True)
+        img = ws / "pic.png"
+        img.write_bytes(b"\x89PNG\x00\xff\xfe")
+        with pytest.raises(api.HTTPException) as exc:
+            asyncio.run(api.save_file_content({"path": str(img), "text": "x"}))
+        assert exc.value.status_code == 415

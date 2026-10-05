@@ -440,3 +440,32 @@ async def file_content(path: str):
         "size": size,
         "data": base64.b64encode(resolved.read_bytes()).decode("ascii"),
     }
+
+
+MAX_CANVAS_TEXT_BYTES = 2 * 1024 * 1024
+
+
+@router.put("/api/files/content")
+async def save_file_content(body: dict):
+    """Save edited text back to an existing workspace/vault file (canvas)."""
+    resolved = resolve_shared_file(str(body.get("path") or ""))
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="File not found in the workspace or vault")
+    text = body.get("text")
+    if not isinstance(text, str):
+        raise HTTPException(status_code=400, detail="text is required")
+    data = text.encode("utf-8")
+    if len(data) > MAX_CANVAS_TEXT_BYTES:
+        raise HTTPException(status_code=413, detail="Text too large (max 2 MB)")
+    try:
+        resolved.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=415, detail="Only text files can be edited")
+    resolved.write_bytes(data)
+    try:
+        from tools.theta_approvals import audit
+
+        audit("canvas_save", path=str(resolved), size=len(data))
+    except Exception:
+        pass
+    return {"ok": True, "path": str(resolved), "size": len(data)}
