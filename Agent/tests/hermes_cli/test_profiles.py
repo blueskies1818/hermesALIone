@@ -183,7 +183,8 @@ class TestCreateProfile:
         profile_dir = create_profile("coder", clone_config=True, no_alias=True)
 
         assert (profile_dir / "config.yaml").read_text() == "model: test"
-        assert (profile_dir / ".env").read_text() == "KEY=val"
+        # Theta: secrets are never copied; profiles inherit the root .env.
+        assert "KEY=val" not in (profile_dir / ".env").read_text()
         assert (profile_dir / "SOUL.md").read_text() == "Be helpful."
 
     def test_clone_config_copies_source_skills(self, profile_env):
@@ -1168,7 +1169,8 @@ class TestEdgeCases:
             "target", clone_from="source", clone_config=True, no_alias=True,
         )
         assert (target_dir / "config.yaml").read_text() == "model: cloned"
-        assert (target_dir / ".env").read_text() == "SECRET=yes"
+        # Theta: secrets are never copied; profiles inherit the root .env.
+        assert "SECRET=yes" not in (target_dir / ".env").read_text()
 
     def test_delete_clears_active_profile(self, profile_env):
         """Deleting the active profile resets active to default."""
