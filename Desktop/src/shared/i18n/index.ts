@@ -16,7 +16,6 @@ import toolsEn from "./locales/en/tools";
 import sessionsEn from "./locales/en/sessions";
 import modelsEn from "./locales/en/models";
 import providersEn from "./locales/en/providers";
-import officeEn from "./locales/en/office";
 import errorsEn from "./locales/en/errors";
 import schedulesEn from "./locales/en/schedules";
 import skillsEn from "./locales/en/skills";
@@ -39,7 +38,6 @@ import toolsEs from "./locales/es/tools";
 import sessionsEs from "./locales/es/sessions";
 import modelsEs from "./locales/es/models";
 import providersEs from "./locales/es/providers";
-import officeEs from "./locales/es/office";
 import errorsEs from "./locales/es/errors";
 import schedulesEs from "./locales/es/schedules";
 import skillsEs from "./locales/es/skills";
@@ -59,7 +57,6 @@ import toolsId from "./locales/id/tools";
 import sessionsId from "./locales/id/sessions";
 import modelsId from "./locales/id/models";
 import providersId from "./locales/id/providers";
-import officeId from "./locales/id/office";
 import errorsId from "./locales/id/errors";
 import schedulesId from "./locales/id/schedules";
 import skillsId from "./locales/id/skills";
@@ -79,7 +76,6 @@ import toolsZh from "./locales/zh-CN/tools";
 import sessionsZh from "./locales/zh-CN/sessions";
 import modelsZh from "./locales/zh-CN/models";
 import providersZh from "./locales/zh-CN/providers";
-import officeZh from "./locales/zh-CN/office";
 import errorsZh from "./locales/zh-CN/errors";
 import schedulesZh from "./locales/zh-CN/schedules";
 import skillsZh from "./locales/zh-CN/skills";
@@ -99,7 +95,6 @@ import toolsZhTw from "./locales/zh-TW/tools";
 import sessionsZhTw from "./locales/zh-TW/sessions";
 import modelsZhTw from "./locales/zh-TW/models";
 import providersZhTw from "./locales/zh-TW/providers";
-import officeZhTw from "./locales/zh-TW/office";
 import errorsZhTw from "./locales/zh-TW/errors";
 import schedulesZhTw from "./locales/zh-TW/schedules";
 import skillsZhTw from "./locales/zh-TW/skills";
@@ -119,7 +114,6 @@ import toolsJa from "./locales/ja/tools";
 import sessionsJa from "./locales/ja/sessions";
 import modelsJa from "./locales/ja/models";
 import providersJa from "./locales/ja/providers";
-import officeJa from "./locales/ja/office";
 import errorsJa from "./locales/ja/errors";
 import schedulesJa from "./locales/ja/schedules";
 import skillsJa from "./locales/ja/skills";
@@ -139,7 +133,6 @@ import toolsPt from "./locales/pt-BR/tools";
 import sessionsPt from "./locales/pt-BR/sessions";
 import modelsPt from "./locales/pt-BR/models";
 import providersPt from "./locales/pt-BR/providers";
-import officePt from "./locales/pt-BR/office";
 import errorsPt from "./locales/pt-BR/errors";
 import schedulesPt from "./locales/pt-BR/schedules";
 import skillsPt from "./locales/pt-BR/skills";
@@ -159,7 +152,6 @@ import toolsPtPt from "./locales/pt-PT/tools";
 import sessionsPtPt from "./locales/pt-PT/sessions";
 import modelsPtPt from "./locales/pt-PT/models";
 import providersPtPt from "./locales/pt-PT/providers";
-import officePtPt from "./locales/pt-PT/office";
 import errorsPtPt from "./locales/pt-PT/errors";
 import schedulesPtPt from "./locales/pt-PT/schedules";
 import skillsPtPt from "./locales/pt-PT/skills";
@@ -183,7 +175,6 @@ export const resources = {
       sessions: sessionsEn,
       models: modelsEn,
       providers: providersEn,
-      office: officeEn,
       errors: errorsEn,
       schedules: schedulesEn,
       skills: skillsEn,
@@ -210,7 +201,6 @@ export const resources = {
       sessions: sessionsEs,
       models: modelsEs,
       providers: providersEs,
-      office: officeEs,
       errors: errorsEs,
       schedules: schedulesEs,
       skills: skillsEs,
@@ -237,7 +227,6 @@ export const resources = {
       sessions: sessionsId,
       models: modelsId,
       providers: providersId,
-      office: officeId,
       errors: errorsId,
       schedules: schedulesId,
       skills: skillsId,
@@ -264,7 +253,6 @@ export const resources = {
       sessions: sessionsZh,
       models: modelsZh,
       providers: providersZh,
-      office: officeZh,
       errors: errorsZh,
       schedules: schedulesZh,
       skills: skillsZh,
@@ -291,7 +279,6 @@ export const resources = {
       sessions: sessionsZhTw,
       models: modelsZhTw,
       providers: providersZhTw,
-      office: officeZhTw,
       errors: errorsZhTw,
       schedules: schedulesZhTw,
       skills: skillsZhTw,
@@ -318,7 +305,6 @@ export const resources = {
       sessions: sessionsPt,
       models: modelsPt,
       providers: providersPt,
-      office: officePt,
       errors: errorsPt,
       schedules: schedulesPt,
       skills: skillsPt,
@@ -345,7 +331,6 @@ export const resources = {
       sessions: sessionsPtPt,
       models: modelsPtPt,
       providers: providersPtPt,
-      office: officePtPt,
       errors: errorsPtPt,
       schedules: schedulesPtPt,
       skills: skillsPtPt,
@@ -370,7 +355,6 @@ export const resources = {
       sessions: sessionsJa,
       models: modelsJa,
       providers: providersJa,
-      office: officeJa,
       errors: errorsJa,
       schedules: schedulesJa,
       skills: skillsJa,

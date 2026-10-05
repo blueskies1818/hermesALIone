@@ -29,7 +29,6 @@ import { readModels } from "./models";
 import { HIDDEN_SUBPROCESS_OPTIONS } from "./process-options";
 import { type Attachment, escapeXmlAttr } from "../shared/attachments";
 
-const LOCAL_API_URL = "http://127.0.0.1:8642";
 const LOCAL_REST_URL = "http://127.0.0.1:9119";
 
 /**
@@ -62,7 +61,8 @@ export function getApiUrl(): string {
   if (conn.mode === "remote" && conn.remoteUrl) {
     return normaliseRemoteUrl(conn.remoteUrl);
   }
-  return LOCAL_API_URL;
+  // The REST server forwards /v1/* to the chat server: one address.
+  return LOCAL_REST_URL;
 }
 
 /** Base URL for the Hermes REST API server (port 9119). */
@@ -140,9 +140,14 @@ export async function apiFetch(
   }
 }
 
+/**
+ * Theta: the app is always a client of a server — including "local", which
+ * is just the server on this machine (http://127.0.0.1:9119). Every read
+ * and write goes through the server API; the app never touches agent files,
+ * databases or processes on its own machine, so it works the same remotely.
+ */
 export function isRemoteMode(): boolean {
-  const mode = getConnectionConfig().mode;
-  return mode === "remote" || mode === "ssh";
+  return true;
 }
 
 /** True only for pure remote HTTP — SSH tunnel has full local access via SSH exec */

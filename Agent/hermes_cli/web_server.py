@@ -4667,6 +4667,14 @@ try:
 except Exception as exc:
     _log.warning("Failed to mount extended API routes: %s", exc)
 
+# Theta: endpoints that keep the Desktop app a pure client (/v1 forward,
+# attachments, session rename, credential pool, model discovery).
+try:
+    from hermes_cli.theta_client_api import router as theta_client_router
+    app.include_router(theta_client_router)
+except Exception as exc:
+    _log.warning("Failed to mount Theta client API routes: %s", exc)
+
 # Mount plugin API routes before the SPA catch-all.
 _mount_plugin_api_routes()
 

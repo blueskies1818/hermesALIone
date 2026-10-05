@@ -39,25 +39,47 @@ export interface PublicConnectionConfig {
   ssh: SshConnectionConfig;
 }
 
-// Lazy getter — avoids circular dependency with installer.ts
-// (HERMES_HOME may not be assigned yet when this module first loads)
+// Theta: the app's own settings (connection, locale) live in the app's
+// settings folder, not in the agent data home — the app is a client and the
+// server may be on another machine.
+function appSettingsDir(): string {
+  const override = process.env.THETA_APP_SETTINGS_DIR?.trim();
+  if (override) return override;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require("electron") as typeof import("electron");
+    if (app?.getPath) return app.getPath("userData");
+  } catch {
+    /* not running inside Electron (tests) */
+  }
+  return HERMES_HOME;
+}
+
 function desktopConfigFile(): string {
-  return join(HERMES_HOME, "desktop.json");
+  return join(appSettingsDir(), "desktop.json");
 }
 
 export function readDesktopConfig(): Record<string, unknown> {
   try {
     const f = desktopConfigFile();
-    if (!existsSync(f)) return {};
-    return JSON.parse(readFileSync(f, "utf-8"));
+    if (existsSync(f)) return JSON.parse(readFileSync(f, "utf-8"));
+    // One-time carry-over from the old location in the data home.
+    const legacy = join(HERMES_HOME, "desktop.json");
+    if (legacy !== f && existsSync(legacy)) {
+      const data = JSON.parse(readFileSync(legacy, "utf-8"));
+      writeDesktopConfig(data);
+      return data;
+    }
+    return {};
   } catch {
     return {};
   }
 }
 
 export function writeDesktopConfig(data: Record<string, unknown>): void {
-  if (!existsSync(HERMES_HOME)) {
-    mkdirSync(HERMES_HOME, { recursive: true });
+  const dir = appSettingsDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
   }
   writeFileSync(desktopConfigFile(), JSON.stringify(data, null, 2), "utf-8");
 }

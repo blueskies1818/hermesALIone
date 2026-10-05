@@ -6,7 +6,6 @@ import Memory from "../Memory/Memory";
 import Tools from "../Tools/Tools";
 import Assistant from "../Assistant/Assistant";
 import Gateway from "../Gateway/Gateway";
-import Office from "../Office/Office";
 import Kanban from "../Kanban/Kanban";
 import Sessions from "../Sessions/Sessions";
 import Schedules from "../Schedules/Schedules";
@@ -45,7 +44,6 @@ type View =
   | "tools"
   | "kanban"
   | "gateway"
-  | "office"
   | "sessions"
   | "schedules"
   | "vault"
@@ -382,12 +380,6 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
         {visitedViews.has("gateway") && (
           <div style={paneStyle("gateway")}>
             <Gateway profile={activeProfile} />
-          </div>
-        )}
-
-        {visitedViews.has("office") && (
-          <div style={paneStyle("office")}>
-            <Office profile={activeProfile} visible={view === "office"} />
           </div>
         )}
 

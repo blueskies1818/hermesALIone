@@ -13,24 +13,11 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import type { AppUpdater } from "electron-updater";
 import icon from "../../resources/icon.png?asset";
 import type { Attachment } from "../shared/attachments";
-import { stageAttachment, clearStagedAttachments } from "./attachment-staging";
-import { discoverProviderModels } from "./model-discovery";
 import {
   checkInstallStatus,
   verifyInstall,
   getHermesVersion,
   clearVersionCache,
-  runHermesDoctor,
-  runHermesUpdate,
-  checkOpenClawExists,
-  runClawMigrate,
-  runHermesBackup,
-  runHermesImport,
-  runHermesDump,
-  listMcpServers,
-  discoverMemoryProviders,
-  readLogs,
-  InstallProgress,
 } from "./installer";
 import {
   isRemoteMode,
@@ -51,6 +38,11 @@ import {
   subscribeSessionEvents,
   unsubscribeSessionEvents,
 } from "./session-events";
+import { readFile } from "fs/promises";
+import {
+  uploadAttachment,
+  discoverProviderModelsViaServer,
+} from "./server-client";
 import {
   startSshTunnel,
   stopSshTunnel,
@@ -59,23 +51,6 @@ import {
   isSshTunnelHealthy,
 } from "./ssh-tunnel";
 import {
-  getClaw3dStatus,
-  setupClaw3d,
-  startDevServer,
-  stopDevServer,
-  startAdapter,
-  stopAdapter,
-  startAll as startClaw3dAll,
-  stopAll as stopClaw3d,
-  getClaw3dLogs,
-  setClaw3dPort,
-  getClaw3dPort,
-  setClaw3dWsUrl,
-  getClaw3dWsUrl,
-  Claw3dSetupProgress,
-} from "./claw3d";
-import { startOfficeStack } from "./office-start";
-import {
   readEnv,
   setEnvValue,
   getConfigValue,
@@ -83,8 +58,6 @@ import {
   getHermesHome,
   getModelConfig,
   setModelConfig,
-  getCredentialPool,
-  setCredentialPool,
   getConnectionConfig,
   getPublicConnectionConfig,
   resolveConnectionApiKeyUpdate,
@@ -101,8 +74,6 @@ import {
 import {
   syncSessionCache,
   listCachedSessions,
-  removeSessionFromCache,
-  updateSessionTitle,
 } from "./session-cache";
 import { listModels, addModel, removeModel, updateModel } from "./models";
 import {
@@ -403,7 +374,8 @@ function setupIPC(): void {
   ipcMain.handle("run-hermes-doctor", () => {
     const conn = getConnectionConfig();
     if (conn.mode === "ssh" && conn.ssh) return sshRunDoctor(conn.ssh);
-    return runHermesDoctor();
+    // Theta: the app never runs backend tools on its own machine.
+    return "This runs on the server. Use the terminal there (e.g. `hermes doctor`).";
   });
   ipcMain.handle("run-hermes-update", async (event) => {
     try {
@@ -423,27 +395,23 @@ function setupIPC(): void {
         setSshRemoteApiKey(key);
         return { success: true };
       }
-      await runHermesUpdate((progress: InstallProgress) => {
-        event.sender.send("install-progress", progress);
-      });
-      return { success: true };
+      // Theta: the server is updated on the server (git pull + install).
+      return {
+        success: false,
+        error: "Update the server on the server machine (git pull, then install.ps1).",
+      };
     } catch (err) {
       return { success: false, error: (err as Error).message };
     }
   });
 
   // OpenClaw migration
-  ipcMain.handle("check-openclaw", () => checkOpenClawExists());
-  ipcMain.handle("run-claw-migrate", async (event) => {
-    try {
-      await runClawMigrate((progress: InstallProgress) => {
-        event.sender.send("install-progress", progress);
-      });
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: (err as Error).message };
-    }
-  });
+  // Theta: OpenClaw migration reads files on this machine; not offered.
+  ipcMain.handle("check-openclaw", () => ({ found: false, path: null }));
+  ipcMain.handle("run-claw-migrate", async () => ({
+    success: false,
+    error: "Migration runs on the server, not from the app.",
+  }));
 
   // Configuration (profile-aware)
   ipcMain.handle("get-locale", () => getAppLocale());
@@ -864,12 +832,12 @@ function setupIPC(): void {
   ipcMain.handle(
     "stage-attachment",
     (_event, sessionId: string, filename: string, base64Bytes: string) => {
-      return stageAttachment(sessionId, filename, base64Bytes);
+      // Theta: upload to the server; the agent gets a server-side path.
+      return uploadAttachment(sessionId, filename, base64Bytes);
     },
   );
-  ipcMain.handle("clear-staged-attachments", (_event, sessionId: string) => {
-    clearStagedAttachments(sessionId);
-  });
+  // Uploads live in the server workspace (filed with the session there).
+  ipcMain.handle("clear-staged-attachments", () => undefined);
 
   // Model discovery — fetch the provider's /v1/models for autocomplete.
   ipcMain.handle(
@@ -881,7 +849,8 @@ function setupIPC(): void {
       apiKey: string | undefined,
       profile?: string,
     ) => {
-      return discoverProviderModels(provider, baseUrl, apiKey, profile);
+      // Theta: discovered on the server, with the server's own keys.
+      return discoverProviderModelsViaServer(provider, baseUrl, apiKey, profile);
     },
   );
 
@@ -988,12 +957,9 @@ function setupIPC(): void {
   ipcMain.handle("delete-session", async (_event, sessionId: string) => {
     const conn = getConnectionConfig();
     if (conn.mode === "ssh" && conn.ssh) {
-      const ok = await sshDeleteSession(conn.ssh, sessionId);
-      if (ok) removeSessionFromCache(sessionId);
-      return ok;
+      return sshDeleteSession(conn.ssh, sessionId);
     }
     await deleteSession(sessionId);
-    removeSessionFromCache(sessionId);
   });
 
   // Profiles
@@ -1155,8 +1121,13 @@ function setupIPC(): void {
   });
   ipcMain.handle(
     "update-session-title",
-    (_event, sessionId: string, title: string) =>
-      updateSessionTitle(sessionId, title),
+    async (_event, sessionId: string, title: string) => {
+      const { ok } = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "PATCH",
+        body: { title },
+      });
+      return ok;
+    },
   );
 
   // Session search
@@ -1171,19 +1142,26 @@ function setupIPC(): void {
   // credential pool helpers default to the currently active profile's
   // auth.json (see config.ts:authFilePath), so the renderer can pass an
   // explicit profile or rely on the active-profile fallback.
-  ipcMain.handle("get-credential-pool", (_event, profile?: string) =>
-    getCredentialPool(profile),
-  );
+  ipcMain.handle("get-credential-pool", async (_event, profile?: string) => {
+    const { ok, data } = await apiFetch("/api/credential-pool", {
+      params: profile ? { profile } : undefined,
+    });
+    return ok ? ((data as { pool?: unknown })?.pool ?? {}) : {};
+  });
   ipcMain.handle(
     "set-credential-pool",
-    (
+    async (
       _event,
       provider: string,
       entries: Array<{ key: string; label: string }>,
       profile?: string,
     ) => {
-      setCredentialPool(provider, entries, profile);
-      return true;
+      const { ok } = await apiFetch("/api/credential-pool", {
+        method: "PUT",
+        body: { provider, entries },
+        params: profile ? { profile } : undefined,
+      });
+      return ok;
     },
   );
 
@@ -1223,61 +1201,6 @@ function setupIPC(): void {
       return updateModel(id, fields);
     },
   );
-
-  // Claw3D
-  ipcMain.handle("claw3d-status", () => getClaw3dStatus());
-
-  ipcMain.handle("claw3d-setup", async (event) => {
-    try {
-      await setupClaw3d((progress: Claw3dSetupProgress) => {
-        event.sender.send("claw3d-setup-progress", progress);
-      });
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: (err as Error).message };
-    }
-  });
-
-  ipcMain.handle("claw3d-get-port", () => getClaw3dPort());
-  ipcMain.handle("claw3d-set-port", (_event, port: number) => {
-    setClaw3dPort(port);
-    return true;
-  });
-  ipcMain.handle("claw3d-get-ws-url", () => getClaw3dWsUrl());
-  ipcMain.handle("claw3d-set-ws-url", (_event, url: string) => {
-    setClaw3dWsUrl(url);
-    return true;
-  });
-
-  ipcMain.handle("claw3d-start-all", (_event, profile?: string) =>
-    startOfficeStack(profile, {
-      getConnectionConfig,
-      isGatewayRunning,
-      startGateway,
-      sshGatewayStatus,
-      sshStartGateway,
-      startSshTunnel,
-      sshReadRemoteApiKey,
-      setSshRemoteApiKey,
-      startClaw3dAll,
-    }),
-  );
-  ipcMain.handle("claw3d-stop-all", () => {
-    stopClaw3d();
-    return true;
-  });
-  ipcMain.handle("claw3d-get-logs", () => getClaw3dLogs());
-
-  ipcMain.handle("claw3d-start-dev", () => startDevServer());
-  ipcMain.handle("claw3d-stop-dev", () => {
-    stopDevServer();
-    return true;
-  });
-  ipcMain.handle("claw3d-start-adapter", () => startAdapter());
-  ipcMain.handle("claw3d-stop-adapter", () => {
-    stopAdapter();
-    return true;
-  });
 
   // Cron Jobs
   ipcMain.handle(
@@ -1459,33 +1382,63 @@ function setupIPC(): void {
   });
 
   // Backup / Import
-  ipcMain.handle("run-hermes-backup", (_event, profile?: string) =>
-    runHermesBackup(profile),
-  );
+  // Theta: backups are made on (and stay on) the server.
+  ipcMain.handle("run-hermes-backup", async (_event, profile?: string) => {
+    const { ok, data } = await apiFetch("/api/backup", {
+      method: "POST",
+      params: { profile: profile || "default" },
+    });
+    const d = (data as { path?: string; detail?: string }) || {};
+    return ok
+      ? { success: true, path: `server: ${d.path ?? ""}` }
+      : { success: false, error: d.detail || "Backup failed on the server" };
+  });
+  // Import: the archive picked on this device is uploaded, then imported
+  // by the server.
   ipcMain.handle(
     "run-hermes-import",
-    (_event, archivePath: string, profile?: string) =>
-      runHermesImport(archivePath, profile),
+    async (_event, archivePath: string, profile?: string) => {
+      try {
+        const bytes = await readFile(archivePath);
+        const name = archivePath.split(/[\\/]/).pop() || "import.zip";
+        const serverPath = await uploadAttachment("imports", name, bytes.toString("base64"));
+        const { ok, data } = await apiFetch("/api/import", {
+          method: "POST",
+          body: { archivePath: serverPath, profile: profile || "default" },
+        });
+        return ok
+          ? { success: true }
+          : { success: false, error: String((data as { detail?: string })?.detail || "Import failed") };
+      } catch (err) {
+        return { success: false, error: (err as Error).message };
+      }
+    },
   );
 
   // Debug dump
   ipcMain.handle("run-hermes-dump", () => {
     const conn = getConnectionConfig();
     if (conn.mode === "ssh" && conn.ssh) return sshRunDump(conn.ssh);
-    return runHermesDump();
+    return "This runs on the server. Use the terminal there (e.g. `hermes dump`).";
   });
 
   // MCP servers
-  ipcMain.handle("list-mcp-servers", (_event, profile?: string) =>
-    listMcpServers(profile),
-  );
+  ipcMain.handle("list-mcp-servers", async (_event, profile?: string) => {
+    const { ok, data } = await apiFetch("/api/mcp/servers", {
+      params: { profile: profile || "default" },
+    });
+    return ok ? ((data as { servers?: unknown[] })?.servers ?? []) : [];
+  });
 
   // Memory providers
-  ipcMain.handle("discover-memory-providers", (_event, profile?: string) => {
+  ipcMain.handle("discover-memory-providers", async (_event, profile?: string) => {
     const conn = getConnectionConfig();
     if (conn.mode === "ssh" && conn.ssh)
       return sshDiscoverMemoryProviders(conn.ssh, profile);
-    return discoverMemoryProviders(profile);
+    const { ok, data } = await apiFetch("/api/memory/providers", {
+      params: { profile: profile || "default" },
+    });
+    return ok ? ((data as { providers?: unknown[] })?.providers ?? []) : [];
   });
 
   // Vault
@@ -1539,11 +1492,16 @@ function setupIPC(): void {
   ipcMain.handle("vault:get-links", (_event, bucketId: string) => getBucketLinks(bucketId));
 
   // Log viewer
-  ipcMain.handle("read-logs", (_event, logFile?: string, lines?: number) => {
+  ipcMain.handle("read-logs", async (_event, logFile?: string, lines?: number) => {
     const conn = getConnectionConfig();
     if (conn.mode === "ssh" && conn.ssh)
       return sshReadLogs(conn.ssh, logFile, lines);
-    return readLogs(logFile, lines);
+    const file = (logFile || "agent.log").replace(/\.log$/i, "");
+    const { ok, data } = await apiFetch("/api/logs", {
+      params: { file, lines: String(lines ?? 200) },
+    });
+    const logLines = ok ? ((data as { lines?: string[] })?.lines ?? []) : [];
+    return { content: logLines.join("\n"), path: `server: logs/${file}.log` };
   });
 }
 
@@ -1757,9 +1715,8 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    stopGateway();
+    // Theta: the app is a client; closing it never stops the server.
     stopSshTunnel();
-    stopClaw3d();
     app.quit();
   }
 });
@@ -1770,7 +1727,5 @@ app.on("before-quit", () => {
     currentChatAbort();
     currentChatAbort = null;
   }
-  stopGateway();
   stopSshTunnel();
-  stopClaw3d();
 });

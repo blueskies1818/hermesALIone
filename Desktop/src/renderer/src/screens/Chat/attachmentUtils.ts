@@ -71,10 +71,9 @@ export interface ProcessFilesResult {
  *     a data URL.
  *   - Text/code file (by MIME prefix or extension allowlist) → inline
  *     `text-file` attachment with UTF-8 contents.
- *   - Everything else → `path-ref` attachment carrying the file's
- *     absolute path.  Picker / drag-drop expose the path via
- *     `webUtils.getPathForFile`; clipboard-pasted blobs have no origin
- *     path and are staged to disk via the main process.
+ *   - Everything else → `path-ref` attachment: the bytes are uploaded to
+ *     the server workspace and the attachment carries the server-side
+ *     path (works the same for a local or a remote server).
  */
 export async function processFiles(
   files: File[] | FileList,
@@ -150,38 +149,24 @@ export async function processFiles(
       continue;
     }
 
-    // Path-ref path — binary/document attachment that the agent will
-    // read via its own file tools.  Requires a filesystem path that's
-    // valid on the agent's host.
-    if (options.remoteMode) {
-      errors.push({ code: "remote-mode-binary", filename: name });
-      continue;
-    }
-
+    // Path-ref path — binary/document attachment that the agent reads via
+    // its own file tools. Theta: the bytes are always uploaded to the
+    // server (local or remote), so the path is one the agent can open.
     let path = "";
     try {
-      path = window.hermesAPI.getPathForFile(file) || "";
-    } catch {
-      path = "";
-    }
-
-    if (!path) {
-      // No origin path (clipboard paste) — stage the bytes to disk.
-      try {
-        const base64 = await readAsBase64(file);
-        path = await window.hermesAPI.stageAttachment(
-          options.sessionId || "",
-          name,
-          base64,
-        );
-      } catch (err) {
-        errors.push({
-          code: "read-failed",
-          filename: name,
-          detail: err instanceof Error ? err.message : String(err),
-        });
-        continue;
-      }
+      const base64 = await readAsBase64(file);
+      path = await window.hermesAPI.stageAttachment(
+        options.sessionId || "",
+        name,
+        base64,
+      );
+    } catch (err) {
+      errors.push({
+        code: "read-failed",
+        filename: name,
+        detail: err instanceof Error ? err.message : String(err),
+      });
+      continue;
     }
 
     if (!path) {

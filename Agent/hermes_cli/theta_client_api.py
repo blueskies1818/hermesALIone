@@ -1,0 +1,245 @@
+"""Theta: endpoints that let the Desktop app be a pure client.
+
+Everything the app used to do on its own machine (reading .env/auth.json,
+staging attachment files, discovering provider models with local keys,
+renaming sessions in a local cache) now happens on the server, so the app
+works the same whether the server is local or remote.
+
+Mounted on the REST server (``hermes_cli.web_server``):
+
+* ``/v1/{path}``                       -> forwarded to the gateway API server,
+                                          streaming (chat, transcribe, ...).
+                                          One address serves the whole app.
+* ``POST /api/attachments``            -> store an uploaded file in the
+                                          server workspace; returns its path.
+* ``PATCH /api/sessions/{id}``         -> rename a session.
+* ``GET/PUT /api/credential-pool``     -> provider credential pool.
+* ``POST /api/providers/models``       -> list a provider's models using the
+                                          server's own keys.
+"""
+
+from __future__ import annotations
+
+import base64
+import os
+import re
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator, Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
+router = APIRouter()
+
+MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+_HOP_HEADERS = {
+    "host", "content-length", "connection", "keep-alive", "transfer-encoding",
+    "te", "trailer", "upgrade", "proxy-authorization", "proxy-authenticate",
+}
+
+
+def _gateway_base() -> str:
+    port = os.getenv("API_SERVER_PORT", "8642").strip() or "8642"
+    return f"http://127.0.0.1:{port}"
+
+
+def _is_loopback(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
+@contextmanager
+def _profile_scope(profile: Optional[str]) -> Iterator[None]:
+    """Run against a profile's home (context-local, like agent scopes)."""
+    if not profile or profile == "default":
+        yield
+        return
+    from hermes_cli.profiles import get_profile_dir, profile_exists
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
+    if not profile_exists(profile):
+        raise HTTPException(status_code=404, detail=f"Profile '{profile}' not found")
+    token = set_hermes_home_override(get_profile_dir(profile))
+    try:
+        yield
+    finally:
+        reset_hermes_home_override(token)
+
+
+# ---------------------------------------------------------------------------
+# /v1 -> gateway
+# ---------------------------------------------------------------------------
+
+@router.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def forward_to_gateway(path: str, request: Request):
+    import httpx
+
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in _HOP_HEADERS}
+    # Local clients are trusted by this server already (same rule as /api);
+    # give them the gateway key so the app never needs to read it from disk.
+    if _is_loopback(request) and not any(k.lower() == "authorization" for k in headers):
+        key = os.getenv("API_SERVER_KEY", "").strip()
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+
+    url = f"{_gateway_base()}/v1/{path}"
+    body = await request.body()
+    client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=None, write=60.0, pool=10.0))
+    try:
+        upstream = await client.send(
+            client.build_request(request.method, url, params=request.query_params,
+                                 headers=headers, content=body),
+            stream=True,
+        )
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        return JSONResponse(
+            {"error": {"message": f"Chat server unreachable: {exc}", "type": "gateway_unavailable"}},
+            status_code=502,
+        )
+
+    async def relay():
+        try:
+            async for chunk in upstream.aiter_raw():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    out_headers = {k: v for k, v in upstream.headers.items()
+                   if k.lower() not in _HOP_HEADERS and k.lower() != "content-encoding"}
+    return StreamingResponse(relay(), status_code=upstream.status_code, headers=out_headers)
+
+
+# ---------------------------------------------------------------------------
+# Attachments
+# ---------------------------------------------------------------------------
+
+def _safe_segment(value: str, fallback: str) -> str:
+    cleaned = re.sub(r'[\x00-\x1f<>:"/\\|?*]', "", value or "")
+    cleaned = re.sub(r"\s+", "_", cleaned).replace("..", ".").strip(". ")
+    return cleaned[:200] or fallback
+
+
+def attachments_dir(session_id: str) -> Path:
+    from hermes_constants import get_default_hermes_root
+
+    return get_default_hermes_root() / "workspace" / "uploads" / _safe_segment(session_id, "unsorted")
+
+
+@router.post("/api/attachments")
+async def upload_attachment(body: dict):
+    filename = _safe_segment(str(body.get("filename") or ""), "attachment")
+    try:
+        data = base64.b64decode(str(body.get("data") or ""), validate=True)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="data must be base64")
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status_code=413, detail="Attachment too large (max 50 MB)")
+    folder = attachments_dir(str(body.get("session_id") or ""))
+    folder.mkdir(parents=True, exist_ok=True)
+    stem, dot, ext = filename.rpartition(".")
+    target = folder / filename
+    n = 1
+    while target.exists():
+        target = folder / (f"{stem}-{n}.{ext}" if dot else f"{filename}-{n}")
+        n += 1
+    target.write_bytes(data)
+    return {"ok": True, "path": str(target), "size": len(data)}
+
+
+# ---------------------------------------------------------------------------
+# Sessions
+# ---------------------------------------------------------------------------
+
+@router.patch("/api/sessions/{session_id}")
+async def rename_session(session_id: str, body: dict):
+    from hermes_state import SessionDB
+
+    title = " ".join(str(body.get("title") or "").split())[:200]
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+    db = SessionDB()
+    try:
+        sid = db.resolve_session_id(session_id) or session_id
+        if not db.set_session_title(sid, title):
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"ok": True, "session_id": sid, "title": title}
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Credential pool
+# ---------------------------------------------------------------------------
+
+@router.get("/api/credential-pool")
+async def get_credential_pool(profile: Optional[str] = None):
+    from hermes_cli.auth import read_credential_pool
+
+    with _profile_scope(profile):
+        pool = read_credential_pool(None) or {}
+    return {"pool": pool}
+
+
+@router.put("/api/credential-pool")
+async def put_credential_pool(body: dict, profile: Optional[str] = None):
+    from hermes_cli.auth import write_credential_pool
+
+    provider = str(body.get("provider") or "").strip()
+    entries = body.get("entries")
+    if not provider or not isinstance(entries, list):
+        raise HTTPException(status_code=400, detail="provider and entries are required")
+    with _profile_scope(profile):
+        write_credential_pool(provider, entries)
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Provider model discovery
+# ---------------------------------------------------------------------------
+
+_DISCOVERY_CACHE: dict[tuple, tuple[float, list]] = {}
+_DISCOVERY_TTL = 600.0
+
+
+@router.post("/api/providers/models")
+async def discover_provider_models(body: dict, profile: Optional[str] = None):
+    import asyncio
+
+    from hermes_cli.models import probe_api_models
+    from hermes_cli.runtime_provider import resolve_runtime_provider
+
+    provider = str(body.get("provider") or "").strip().lower()
+    base_url = str(body.get("base_url") or "").strip().rstrip("/") or None
+    api_key = str(body.get("api_key") or "").strip() or None
+    if not provider and not base_url:
+        return {"models": [], "status": "unknown-host", "cached": False}
+
+    with _profile_scope(profile):
+        if not api_key or not base_url:
+            try:
+                runtime = resolve_runtime_provider(requested=provider or "custom",
+                                                   explicit_base_url=base_url)
+            except Exception:
+                runtime = {}
+            api_key = api_key or runtime.get("api_key")
+            base_url = base_url or runtime.get("base_url")
+    if not base_url:
+        return {"models": [], "status": "unknown-host", "cached": False}
+
+    key = (provider, base_url)
+    cached = _DISCOVERY_CACHE.get(key)
+    if cached and time.time() - cached[0] < _DISCOVERY_TTL:
+        return {"models": cached[1], "status": "ok", "cached": True, "source": "live"}
+    if not api_key and provider not in ("custom", "ollama", "lmstudio"):
+        return {"models": [], "status": "no-key", "cached": False}
+
+    result: dict[str, Any] = await asyncio.to_thread(probe_api_models, api_key, base_url)
+    models = [m for m in (result.get("models") or []) if m]
+    if result.get("models") is None:
+        return {"models": [], "status": "ok", "cached": False, "source": "error"}
+    _DISCOVERY_CACHE[key] = (time.time(), models)
+    return {"models": models, "status": "ok", "cached": False, "source": "live"}

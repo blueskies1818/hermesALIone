@@ -258,7 +258,8 @@ export function checkInstallStatus(): InstallStatus {
 
   // Remote mode: skip local checks entirely
   const conn = getConnectionConfig();
-  if (conn.mode === "remote" && conn.remoteUrl) {
+  // Theta: the server manages its own install; the app only connects.
+  if (conn.mode !== "ssh") {
     return {
       installed: true,
       configured: true,
@@ -316,6 +317,8 @@ let _verifyCache: { ok: boolean; ts: number } | null = null;
 const VERIFY_TTL_MS = 5 * 60 * 1000;
 
 export async function verifyInstall(): Promise<boolean> {
+  // Theta: the app is a client; the server verifies its own install.
+  if (getConnectionConfig().mode !== "ssh") return true;
   if (!existsSync(HERMES_PYTHON) || !existsSync(HERMES_SCRIPT)) return false;
   if (_verifyCache && Date.now() - _verifyCache.ts < VERIFY_TTL_MS) {
     return _verifyCache.ok;

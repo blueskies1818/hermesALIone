@@ -112,36 +112,27 @@ describe("processFiles", () => {
     expect(a.mime).toBe("application/pdf");
   });
 
-  it("uses the origin path returned by webUtils for picker/drag-drop files", async () => {
+  it("uploads picker/drag-drop files too, never sending a local path", async () => {
+    // Theta: the agent may run on another machine, so a local path is useless.
     (window as unknown as { hermesAPI: Record<string, unknown> }).hermesAPI = {
       getPathForFile: vi.fn(() => "C:/Users/me/Downloads/doc.pdf"),
-      stageAttachment: vi.fn(),
+      stageAttachment: vi.fn(async () => "/srv/theta/workspace/uploads/s/doc.pdf"),
     };
     const file = makeFile("doc.pdf", "application/pdf", "%PDF-1.4");
-    const out = await processFiles([file], 0);
+    const out = await processFiles([file], 0, { remoteMode: true });
     expect(out.errors).toEqual([]);
-    expect(out.attachments).toHaveLength(1);
-    const a = out.attachments[0];
-    expect(a.kind).toBe("path-ref");
-    expect(a.path).toBe("C:/Users/me/Downloads/doc.pdf");
-    expect(
-      (
-        window as unknown as {
-          hermesAPI: { stageAttachment: ReturnType<typeof vi.fn> };
-        }
-      ).hermesAPI.stageAttachment,
-    ).not.toHaveBeenCalled();
+    expect(out.attachments[0].path).toBe("/srv/theta/workspace/uploads/s/doc.pdf");
   });
 
-  it("blocks path-ref attachments in remote mode", async () => {
+  it("reports an upload failure as a read error", async () => {
+    (window as unknown as { hermesAPI: Record<string, unknown> }).hermesAPI = {
+      getPathForFile: vi.fn(() => ""),
+      stageAttachment: vi.fn(async () => { throw new Error("server down"); }),
+    };
     const file = makeFile("report.pdf", "application/pdf", "%PDF-1.4");
-    const out = await processFiles([file], 0, { remoteMode: true });
+    const out = await processFiles([file], 0);
     expect(out.attachments).toEqual([]);
-    expect(out.errors).toHaveLength(1);
-    expect(out.errors[0]).toEqual({
-      code: "remote-mode-binary",
-      filename: "report.pdf",
-    });
+    expect(out.errors[0]).toMatchObject({ code: "read-failed", filename: "report.pdf", detail: "server down" });
   });
 
   it("rejects a text file over the size limit", async () => {
