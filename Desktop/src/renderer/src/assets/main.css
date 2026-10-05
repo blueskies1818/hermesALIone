@@ -1288,6 +1288,67 @@ body {
   align-self: flex-start;
 }
 
+/* Theta: per-message actions (copy / edit / regenerate), beside the bubble */
+.chat-msg-actions {
+  display: flex;
+  gap: 2px;
+  align-self: flex-end;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.chat-message:hover .chat-msg-actions,
+.chat-msg-actions:focus-within {
+  opacity: 1;
+}
+.chat-msg-action {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.chat-msg-action:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 320px;
+}
+.chat-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid var(--border-bright);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+}
+.chat-edit-input:focus { border-color: var(--border-focus); }
+.chat-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.chat-edit-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
 .chat-avatar {
   width: 28px;
   height: 28px;

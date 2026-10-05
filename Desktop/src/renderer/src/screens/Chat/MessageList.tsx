@@ -9,6 +9,8 @@ interface MessageListProps {
   toolProgress: string | null;
   onApprove: () => void;
   onDeny: () => void;
+  onRegenerate?: () => void;
+  onEdit?: (messageId: string, text: string) => void;
 }
 
 function TypingIndicator({
@@ -41,6 +43,8 @@ export const MessageList = memo(function MessageList({
   toolProgress,
   onApprove,
   onDeny,
+  onRegenerate,
+  onEdit,
 }: MessageListProps): React.JSX.Element {
   const visibleMessages = useMemo(
     () => messages.filter((m) => (m.content || "").trim()),
@@ -60,6 +64,8 @@ export const MessageList = memo(function MessageList({
           isLoading={isLoading}
           onApprove={onApprove}
           onDeny={onDeny}
+          onRegenerate={onRegenerate}
+          onEdit={onEdit}
         />
       ))}
 

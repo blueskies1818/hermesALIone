@@ -934,6 +934,16 @@ function setupIPC(): void {
     return listSessions(limit, offset);
   });
 
+  // Theta: drop a user message and everything after it (edit / regenerate)
+  ipcMain.handle("rewind-session", async (_event, sessionId: string, userTurn: number) => {
+    if (typeof sessionId !== "string" || !sessionId) return false;
+    const { ok } = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/rewind`, {
+      method: "POST",
+      body: { user_turn: userTurn },
+    });
+    return ok;
+  });
+
   // Theta: current agent (and project) of a conversation, for the chat header
   ipcMain.handle("get-session-agent", async (_event, sessionId: string) => {
     if (typeof sessionId !== "string" || !sessionId) return null;

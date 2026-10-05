@@ -247,6 +247,8 @@ function Chat({
             toolProgress={toolProgress}
             onApprove={actions.handleApprove}
             onDeny={actions.handleDeny}
+            onRegenerate={actions.handleRegenerate}
+            onEdit={actions.handleEdit}
           />
         )}
         <div ref={bottomRef} />

@@ -272,6 +272,7 @@ interface HermesAPI {
       preview: string;
     }>
   >;
+  rewindSession: (sessionId: string, userTurn: number) => Promise<boolean>;
   getSessionAgent: (
     sessionId: string,
   ) => Promise<{ agent: string; description: string; project: string | null } | null>;

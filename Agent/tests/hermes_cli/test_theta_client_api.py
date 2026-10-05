@@ -70,3 +70,36 @@ class TestAttachments:
         with pytest.raises(api.HTTPException) as exc:
             self._upload(session_id="s", filename="a", data=base64.b64encode(b"abcd").decode())
         assert exc.value.status_code == 413
+
+
+class TestRewind:
+    def test_cut_index_skips_worker_updates(self):
+        msgs = [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "[Updates from the work agent]\n- done"},
+            {"role": "assistant", "content": "it's done"},
+            {"role": "user", "content": "[Updates from the work agent]\n- x\n\n[User message]\nsecond"},
+            {"role": "assistant", "content": "a2"},
+        ]
+        assert api.rewind_cut_index(msgs, 0) == 0
+        assert api.rewind_cut_index(msgs, 1) == 4
+        assert api.rewind_cut_index(msgs, 2) is None
+
+    def test_rewind_endpoint_truncates_session(self):
+        from hermes_state import SessionDB
+
+        db = SessionDB()
+        db.create_session("rw-1", source="api_server")
+        for role, text in [("user", "q1"), ("assistant", "a1"), ("user", "q2"), ("assistant", "a2")]:
+            db.append_message("rw-1", role, text)
+        db.close()
+
+        out = asyncio.run(api.rewind_session("rw-1", {"user_turn": 1}))
+
+        db = SessionDB()
+        try:
+            assert out["removed"] == 2
+            assert [m["content"] for m in db.get_messages("rw-1")] == ["q1", "a1"]
+        finally:
+            db.close()

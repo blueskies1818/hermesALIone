@@ -26,6 +26,13 @@ interface UseChatActionsResult {
   handleAbort: () => void;
   handleApprove: () => void;
   handleDeny: () => void;
+  handleRegenerate: () => Promise<void>;
+  handleEdit: (messageId: string, text: string) => Promise<void>;
+}
+
+/** User messages the server stored (local slash-command echoes are not). */
+function isServerUserMessage(m: ChatMessage): boolean {
+  return m.role === "user" && !m.id.startsWith("local-");
 }
 
 /**
@@ -95,7 +102,7 @@ export function useChatActions({
 
       if (text && localCommands.isLocal(text)) {
         const cmd = text.split(/\s+/)[0].toLowerCase();
-        if (cmd !== "/new" && cmd !== "/clear") pushUser(text);
+        if (cmd !== "/new" && cmd !== "/clear") pushUser(text, "local");
         await localCommands.executeLocal(text);
         return;
       }
@@ -143,5 +150,64 @@ export function useChatActions({
     sendToAgent("/deny").catch(() => setIsLoading(false));
   }, [chatInputRef, pushUser, sendToAgent, setIsLoading, setStreamStarted]);
 
-  return { handleSend, handleQuickAsk, handleAbort, handleApprove, handleDeny };
+  /**
+   * Theta: cut the conversation at a user message (on the server too) and
+   * send that message again, optionally with new text. Used by regenerate
+   * and edit-and-resend.
+   */
+  const resendFrom = useCallback(
+    async (index: number, text: string, attachments?: Attachment[]): Promise<void> => {
+      if (isLoadingRef.current) return;
+      const current = messagesRef.current;
+      const userTurn = current.slice(0, index).filter(isServerUserMessage).length;
+      if (hermesSessionId) {
+        const ok = await window.hermesAPI.rewindSession(hermesSessionId, userTurn);
+        if (!ok) {
+          setMessages((prev) => [
+            ...prev,
+            { id: `error-${Date.now()}`, role: "agent", content: "Error: could not rewind the conversation on the server." },
+          ]);
+          return;
+        }
+      }
+      const kept = current.slice(0, index);
+      messagesRef.current = kept;
+      setMessages(kept);
+      setIsLoading(true);
+      setStreamStarted(false);
+      pushUser(text, "user", attachments);
+      await sendToAgent(text, attachments);
+    },
+    [hermesSessionId, pushUser, sendToAgent, setIsLoading, setMessages, setStreamStarted],
+  );
+
+  const handleRegenerate = useCallback(async (): Promise<void> => {
+    const current = messagesRef.current;
+    for (let i = current.length - 1; i >= 0; i--) {
+      if (isServerUserMessage(current[i])) {
+        await resendFrom(i, current[i].content, current[i].attachments);
+        return;
+      }
+    }
+  }, [resendFrom]);
+
+  const handleEdit = useCallback(
+    async (messageId: string, text: string): Promise<void> => {
+      const current = messagesRef.current;
+      const index = current.findIndex((m) => m.id === messageId);
+      if (index < 0 || !text.trim()) return;
+      await resendFrom(index, text.trim(), current[index].attachments);
+    },
+    [resendFrom],
+  );
+
+  return {
+    handleSend,
+    handleQuickAsk,
+    handleAbort,
+    handleApprove,
+    handleDeny,
+    handleRegenerate,
+    handleEdit,
+  };
 }

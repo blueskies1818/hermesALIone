@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { Check, Copy, Pencil, RefreshCw } from "lucide-react";
 import icon from "../../assets/icon.png";
 import { AgentMarkdown } from "../../components/AgentMarkdown";
 import { AttachmentChip } from "../../components/AttachmentChip";
@@ -26,6 +27,18 @@ interface MessageRowProps {
   isLoading: boolean;
   onApprove: () => void;
   onDeny: () => void;
+  onRegenerate?: () => void;
+  onEdit?: (messageId: string, text: string) => void;
+}
+
+/** Messages the user can edit and resend (not slash-command echoes). */
+function isEditable(msg: ChatMessage): boolean {
+  return (
+    msg.role === "user" &&
+    msg.id.startsWith("user-") &&
+    !/^user-(btw|approve|deny)-/.test(msg.id) &&
+    !msg.content.startsWith("/")
+  );
 }
 
 export const MessageRow = memo(function MessageRow({
@@ -34,8 +47,28 @@ export const MessageRow = memo(function MessageRow({
   isLoading,
   onApprove,
   onDeny,
+  onRegenerate,
+  onEdit,
 }: MessageRowProps): React.JSX.Element {
   const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const copyMessage = (): void => {
+    navigator.clipboard.writeText(msg.content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  const startEdit = (): void => { setDraft(msg.content); setEditing(true); };
+  const saveEdit = (): void => {
+    if (!draft.trim()) return;
+    setEditing(false);
+    onEdit?.(msg.id, draft);
+  };
+  const showRegenerate = msg.role === "agent" && isLast && !isLoading && !!onRegenerate;
+  const showEdit = isEditable(msg) && !isLoading && !!onEdit;
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(
     null,
   );
@@ -65,13 +98,50 @@ export const MessageRow = memo(function MessageRow({
             ))}
           </div>
         )}
-        {msg.content &&
+        {editing ? (
+          <div className="chat-edit">
+            <textarea
+              className="chat-edit-input"
+              value={draft}
+              autoFocus
+              rows={Math.min(10, Math.max(2, draft.split('\n').length))}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(); }
+                if (e.key === "Escape") setEditing(false);
+              }}
+            />
+            <div className="chat-edit-actions">
+              <button className="btn btn-secondary chat-edit-btn" onClick={() => setEditing(false)}>Cancel</button>
+              <button className="btn btn-primary chat-edit-btn" onClick={saveEdit} disabled={!draft.trim()}>Send</button>
+            </div>
+          </div>
+        ) : (
+          msg.content &&
           (msg.role === "agent" ? (
             <AgentMarkdown>{msg.content}</AgentMarkdown>
           ) : (
             msg.content
-          ))}
+          ))
+        )}
       </div>
+      {!editing && msg.content && (
+        <div className={`chat-msg-actions chat-msg-actions-${msg.role}`}>
+          <button className="chat-msg-action" onClick={copyMessage} title="Copy">
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+          {showEdit && (
+            <button className="chat-msg-action" onClick={startEdit} title="Edit and resend">
+              <Pencil size={13} />
+            </button>
+          )}
+          {showRegenerate && (
+            <button className="chat-msg-action" onClick={onRegenerate} title="Regenerate">
+              <RefreshCw size={13} />
+            </button>
+          )}
+        </div>
+      )}
       {showApprovalBar && (
         <div className="chat-approval-bar">
           <button

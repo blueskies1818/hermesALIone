@@ -344,6 +344,8 @@ const hermesAPI = {
     }>
   > => ipcRenderer.invoke("list-sessions", limit, offset),
 
+  rewindSession: (sessionId: string, userTurn: number): Promise<boolean> =>
+    ipcRenderer.invoke("rewind-session", sessionId, userTurn),
   getSessionAgent: (
     sessionId: string,
   ): Promise<{ agent: string; description: string; project: string | null } | null> =>

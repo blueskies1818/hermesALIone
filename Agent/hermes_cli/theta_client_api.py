@@ -299,3 +299,51 @@ async def discover_provider_models(body: dict, profile: Optional[str] = None):
         return {"models": [], "status": "ok", "cached": False, "source": "error"}
     _DISCOVERY_CACHE[key] = (time.time(), models)
     return {"models": models, "status": "ok", "cached": False, "source": "live"}
+
+
+# ---------------------------------------------------------------------------
+# Rewind (edit / regenerate)
+# ---------------------------------------------------------------------------
+
+def rewind_cut_index(messages: list, user_turn: int) -> Optional[int]:
+    """Index of the ``user_turn``-th (0-based) user message the user can see.
+
+    Counts user messages the way the app displays them (see
+    ``session_inbox.clean_history_for_display``): worker-update messages
+    that the user never typed are skipped.
+    """
+    from gateway.session_inbox import UPDATE_HEADER, USER_MARKER
+
+    seen = -1
+    for i, msg in enumerate(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str) and content.startswith(UPDATE_HEADER) and USER_MARKER not in content:
+            continue
+        seen += 1
+        if seen == user_turn:
+            return i
+    return None
+
+
+@router.post("/api/sessions/{session_id}/rewind")
+async def rewind_session(session_id: str, body: dict):
+    """Drop a user message and everything after it (edit / regenerate)."""
+    from hermes_state import SessionDB
+
+    try:
+        user_turn = int(body.get("user_turn"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="user_turn (int) is required")
+    db = SessionDB()
+    try:
+        sid = db.resolve_session_id(session_id) or session_id
+        messages = db.get_messages(sid)
+        cut = rewind_cut_index(messages, user_turn)
+        if cut is None:
+            raise HTTPException(status_code=404, detail="No such message in this session")
+        db.replace_messages(sid, messages[:cut])
+        return {"ok": True, "session_id": sid, "removed": len(messages) - cut}
+    finally:
+        db.close()
