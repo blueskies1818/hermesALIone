@@ -30,7 +30,19 @@ Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 # so always stop the whole process tree.
 function Stop-Tree($procId) { taskkill /T /F /PID $procId 2>&1 | Out-Null }
 
-# Stop a previous Theta backend still holding our ports (only our own venv's python).
+# Stop every Theta backend process (launchers and interpreters), not just the
+# one holding a port: stale ones can grab the port later and drop it, and the
+# gateway may have been restarted from the app under a new PID.
+function Stop-ThetaBackend {
+    Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" | Where-Object {
+        $_.CommandLine -like "*hermes_cli.main*" -and
+        ($_.CommandLine -like "*gateway run*" -or $_.CommandLine -like "*dashboard*")
+    } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 500
+}
+Stop-ThetaBackend
+
+# Anything else on our ports is not ours: refuse rather than kill it.
 foreach ($port in 8642, 9119) {
     Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | ForEach-Object {
         $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.OwningProcess)"
@@ -79,5 +91,5 @@ try {
 } finally {
     Pop-Location
     Write-Host "Stopping backend..."
-    Stop-Tree $gateway.Id; Stop-Tree $dashboard.Id
+    Stop-ThetaBackend
 }

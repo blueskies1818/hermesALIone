@@ -29,7 +29,9 @@ import { readModels } from "./models";
 import { HIDDEN_SUBPROCESS_OPTIONS } from "./process-options";
 import { type Attachment, type ToolEvent, escapeXmlAttr } from "../shared/attachments";
 
-const LOCAL_REST_URL = "http://127.0.0.1:9119";
+// The server on this machine; THETA_LOCAL_SERVER_URL overrides it (tests
+// point it at a dead port so they never touch a running server).
+const LOCAL_REST_URL = process.env.THETA_LOCAL_SERVER_URL?.trim() || "http://127.0.0.1:9119";
 
 /**
  * Normalise a remote-mode URL the user typed into the connection

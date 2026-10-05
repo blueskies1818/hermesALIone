@@ -412,9 +412,11 @@ async def set_toolset_enabled(body: ToolsetToggle):
 async def start_gateway_endpoint(profile: str = Query("default")):
     """Start the Hermes gateway as a subprocess."""
     try:
-        from hermes_cli.gateway import run_gateway as gateway_start
-        result = gateway_start()
-        return {"success": result is not None}
+        import asyncio
+        from hermes_cli import theta_gateway
+
+        # Theta: run the gateway as a plain detached process.
+        return {"success": await asyncio.to_thread(theta_gateway.start)}
     except Exception as exc:
         _log.exception("Failed to start gateway")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -424,9 +426,10 @@ async def start_gateway_endpoint(profile: str = Query("default")):
 async def stop_gateway_endpoint(profile: str = Query("default")):
     """Stop the Hermes gateway."""
     try:
-        from hermes_cli.gateway import stop_profile_gateway as gateway_stop
-        result = gateway_stop()
-        return {"success": result}
+        import asyncio
+        from hermes_cli import theta_gateway
+
+        return {"success": await asyncio.to_thread(theta_gateway.stop)}
     except Exception as exc:
         _log.exception("Failed to stop gateway")
         raise HTTPException(status_code=500, detail=str(exc))

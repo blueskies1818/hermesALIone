@@ -798,17 +798,14 @@ def _tail_lines(path: Path, n: int) -> List[str]:
 
 @app.post("/api/gateway/restart")
 async def restart_gateway():
-    """Kick off a ``hermes gateway restart`` in the background."""
-    try:
-        proc = _spawn_hermes_action(["gateway", "restart"], "gateway-restart")
-    except Exception as exc:
-        _log.exception("Failed to spawn gateway restart")
-        raise HTTPException(status_code=500, detail=f"Failed to restart gateway: {exc}")
-    return {
-        "ok": True,
-        "pid": proc.pid,
-        "name": "gateway-restart",
-    }
+    """Restart the gateway process (Theta: plain process, not a service)."""
+    import asyncio
+    from hermes_cli import theta_gateway
+
+    ok = await asyncio.to_thread(theta_gateway.restart)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Gateway did not come back within 30 s")
+    return {"ok": True, "name": "gateway-restart"}
 
 
 @app.post("/api/hermes/update")
