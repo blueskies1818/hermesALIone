@@ -4799,6 +4799,18 @@ def dispatch_once(
         if max_spawn is None or max_spawn > remaining:
             max_spawn = remaining
     spawned = 0
+    # Theta: over the daily token budget, ready tasks wait (they start once
+    # the day rolls over or the budget is raised) instead of spawning.
+    if ready_rows and not dry_run:
+        try:
+            from tools.theta_work import budget_exceeded
+
+            budget_note = budget_exceeded()
+        except Exception:
+            budget_note = None
+        if budget_note:
+            _log.warning("kanban dispatcher: %s; %d ready task(s) waiting", budget_note, len(ready_rows))
+            ready_rows = []
     for row in ready_rows:
         if max_spawn is not None and running_count + spawned >= max_spawn:
             break

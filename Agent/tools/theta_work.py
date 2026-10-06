@@ -130,16 +130,87 @@ def remove_worktree_if_clean(path: Path) -> bool:
     return _git(["worktree", "remove", str(path)], root, timeout=120).returncode == 0
 
 
-def merge_policy() -> str:
-    """``theta.work.merge``: ``never`` (default) or ``auto``."""
+def _work_config() -> dict:
     try:
         from gateway.agent_roster import _read_config
         from hermes_constants import get_default_hermes_root
 
-        work = (_read_config(get_default_hermes_root()).get("theta") or {}).get("work") or {}
-        value = str(work.get("merge") or "never").strip().lower()
+        return (_read_config(get_default_hermes_root()).get("theta") or {}).get("work") or {}
     except Exception:
-        return "never"
+        return {}
+
+
+def tokens_used_since(since: float) -> int:
+    """Model tokens used by Kanban workers whose runs started at/after ``since``.
+
+    Worker sessions live in each agent's own state.db; runs record their
+    session id in metadata when they finish.
+    """
+    import json
+    import sqlite3
+
+    from hermes_constants import get_default_hermes_root
+
+    root = get_default_hermes_root()
+    session_ids: set[str] = set()
+    kanban_dbs = [root / "kanban.db", *root.glob("kanban/boards/*/kanban.db")]
+    for db in kanban_dbs:
+        if not db.exists():
+            continue
+        try:
+            with sqlite3.connect(db) as conn:
+                for (meta,) in conn.execute(
+                    "SELECT metadata FROM task_runs WHERE started_at >= ? AND metadata IS NOT NULL",
+                    (int(since),),
+                ):
+                    try:
+                        sid = (json.loads(meta) or {}).get("worker_session_id")
+                    except ValueError:
+                        sid = None
+                    if sid:
+                        session_ids.add(str(sid))
+        except sqlite3.Error:
+            continue
+    if not session_ids:
+        return 0
+    total = 0
+    marks = ",".join("?" * len(session_ids))
+    for db in [root / "state.db", *root.glob("profiles/*/state.db")]:
+        if not db.exists():
+            continue
+        try:
+            with sqlite3.connect(db) as conn:
+                row = conn.execute(
+                    f"SELECT COALESCE(SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)"
+                    f" + COALESCE(reasoning_tokens,0)), 0) FROM sessions WHERE id IN ({marks})",
+                    tuple(session_ids),
+                ).fetchone()
+                total += int(row[0] or 0)
+        except sqlite3.Error:
+            continue
+    return total
+
+
+def budget_exceeded(now: Optional[float] = None) -> Optional[str]:
+    """Why new work must wait (``theta.work.budget.daily_tokens``), or None."""
+    budget = _work_config().get("budget") or {}
+    try:
+        cap = int(budget.get("daily_tokens") or 0)
+    except (TypeError, ValueError):
+        cap = 0
+    if cap <= 0:
+        return None
+    now = time.time() if now is None else now
+    midnight = time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1))
+    used = tokens_used_since(midnight)
+    if used >= cap:
+        return f"daily token budget reached ({used:,} of {cap:,})"
+    return None
+
+
+def merge_policy() -> str:
+    """``theta.work.merge``: ``never`` (default) or ``auto``."""
+    value = str(_work_config().get("merge") or "never").strip().lower()
     return value if value in ("never", "auto") else "never"
 
 
