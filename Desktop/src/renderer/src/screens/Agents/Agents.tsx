@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Trash, ChatBubble, ChevronDown, Check } from "../../assets/icons";
+import { Plus, Trash, ChatBubble, ChevronDown } from "../../assets/icons";
+import { SlidersHorizontal } from "lucide-react";
+import { AgentSettingsPanel } from "./AgentSettingsPanel";
 import HermesLogo from "../../components/common/HermesLogo";
 import { useI18n } from "../../components/useI18n";
 
@@ -14,15 +16,6 @@ interface ProfileInfo {
   hasSoul: boolean;
   skillCount: number;
   gatewayRunning: boolean;
-}
-
-interface ModelEntry {
-  id: string;
-  name: string;
-  provider: string;
-  model: string;
-  baseUrl: string;
-  createdAt: number;
 }
 
 interface AgentsProps {
@@ -59,10 +52,9 @@ function Agents({
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // Model editing state — which profile card has the model picker open
-  const [editingModel, setEditingModel] = useState<string | null>(null);
-  const [modelList, setModelList] = useState<ModelEntry[]>([]);
-  const [savingModel, setSavingModel] = useState(false);
+  // Theta: which agent's settings panel is open; provider display names
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
+  const [providerNames, setProviderNames] = useState<Record<string, string>>({});
 
   const loadProfiles = useCallback(async (): Promise<void> => {
     const list = await window.hermesAPI.listProfiles();
@@ -74,26 +66,12 @@ function Agents({
     loadProfiles();
   }, [loadProfiles]);
 
-  // Load configured model entries (providers + models with valid API keys)
   useEffect(() => {
-    window.hermesAPI.listModels().then(setModelList).catch(() => setModelList([]));
+    window.hermesAPI
+      .listModelOptions()
+      .then((opts) => setProviderNames(Object.fromEntries(opts.map((o) => [o.slug, o.name]))))
+      .catch(() => {});
   }, []);
-
-  async function handleSetModel(
-    profileName: string,
-    provider: string,
-    model: string,
-    baseUrl: string,
-  ): Promise<void> {
-    setSavingModel(true);
-    try {
-      await window.hermesAPI.setModelConfig(provider, model, baseUrl, profileName);
-      setEditingModel(null);
-      loadProfiles();
-    } finally {
-      setSavingModel(false);
-    }
-  }
 
   async function handleCreate(): Promise<void> {
     const name = newName.trim().toLowerCase();
@@ -129,7 +107,7 @@ function Agents({
   function providerLabel(provider: string): string {
     if (!provider || provider === "auto") return t("agents.auto");
     if (provider === "custom") return t("agents.local");
-    return provider.charAt(0).toUpperCase() + provider.slice(1);
+    return providerNames[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
   if (loading) {
@@ -234,27 +212,14 @@ function Agents({
               className="agents-card-model agents-card-model-editable"
               onClick={(e) => {
                 e.stopPropagation();
-                setEditingModel(editingModel === p.name ? null : p.name);
+                setSettingsFor(p.name);
               }}
-              title="Click to change model"
+              title="Model, tools and projects"
             >
-              {editingModel === p.name ? (
-                <ModelPickerInline
-                  currentProvider={p.provider}
-                  currentModel={p.model || ""}
-                  modelList={modelList}
-                  saving={savingModel}
-                  onSelect={(provider, model, baseUrl) =>
-                    handleSetModel(p.name, provider, model, baseUrl)
-                  }
-                  onCancel={() => setEditingModel(null)}
-                />
-              ) : (
-                <span className="agents-card-model-text">
-                  {p.model ? p.model.split("/").pop() : t("agents.noModel")}
-                  <ChevronDown size={12} className="agents-card-model-chevron" />
-                </span>
-              )}
+              <span className="agents-card-model-text">
+                {p.model ? p.model.split("/").pop() : t("agents.noModel")}
+                <ChevronDown size={12} className="agents-card-model-chevron" />
+              </span>
             </div>
             <div className="agents-card-stats">
               <span>{t("agents.skillsCount", { count: p.skillCount })}</span>
@@ -277,6 +242,17 @@ function Agents({
               >
                 <ChatBubble size={13} />
                 {t("agents.chat")}
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSettingsFor(p.name);
+                }}
+                title="Model, tools and projects"
+              >
+                <SlidersHorizontal size={13} />
+                Settings
               </button>
               {!p.isDefault &&
                 (confirmDelete === p.name ? (
@@ -320,114 +296,13 @@ function Agents({
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-interface ModelPickerInlineProps {
-  currentProvider: string;
-  currentModel: string;
-  modelList: ModelEntry[];
-  saving: boolean;
-  onSelect: (provider: string, model: string, baseUrl: string) => void;
-  onCancel: () => void;
-}
-
-function ModelPickerInline({
-  currentProvider,
-  currentModel,
-  modelList,
-  saving,
-  onSelect,
-  onCancel,
-}: ModelPickerInlineProps): React.JSX.Element {
-  const providers = [...new Set(modelList.map((m) => m.provider))].filter(Boolean);
-  const [provider, setProvider] = useState(currentProvider || providers[0] || "anthropic");
-  const [model, setModel] = useState(currentModel || "");
-  const [baseUrl] = useState("");
-
-  // Filter models for selected provider
-  const providerModels = modelList.filter((m) => m.provider === provider);
-
-  useEffect(() => {
-    if (providerModels.length > 0 && !model) {
-      setModel(providerModels[0].model);
-    }
-  }, [provider, providerModels, model]);
-
-  function handleSave(): void {
-    if (!model.trim()) return;
-    const entry = modelList.find((m) => m.provider === provider && m.model === model);
-    onSelect(provider, model.trim(), entry?.baseUrl || baseUrl);
-  }
-
-  return (
-    <div
-      className="agents-model-picker"
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
-    >
-      <select
-        className="input input-sm"
-        value={provider}
-        onChange={(e) => {
-          setProvider(e.target.value);
-          setModel("");
-        }}
-      >
-        {providers.length === 0 && (
-          <option value="anthropic">anthropic</option>
-        )}
-        {providers.map((p) => (
-          <option key={p} value={p}>{p}</option>
-        ))}
-      </select>
-      <div className="agents-model-picker-model-row">
-        {providerModels.length > 0 ? (
-          <select
-            className="input input-sm"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-          >
-            {providerModels.map((m) => (
-              <option key={m.id} value={m.model}>
-                {m.model}
-              </option>
-            ))}
-            <option value="__custom__">Custom model...</option>
-          </select>
-        ) : (
-          <input
-            className="input input-sm"
-            placeholder="model name (e.g. claude-sonnet-4-6)"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSave()}
-          />
-        )}
-        {model === "__custom__" && (
-          <input
-            className="input input-sm"
-            placeholder="model name"
-            value=""
-            onChange={(e) => setModel(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSave()}
-            autoFocus
-          />
-        )}
-      </div>
-      <div className="agents-model-picker-actions">
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={handleSave}
-          disabled={saving || !model.trim() || model === "__custom__"}
-        >
-          <Check size={12} />
-        </button>
-        <button className="btn btn-secondary btn-sm" onClick={onCancel}>
-          X
-        </button>
-      </div>
+      {settingsFor && (
+        <AgentSettingsPanel
+          agent={settingsFor}
+          onClose={() => setSettingsFor(null)}
+          onSaved={loadProfiles}
+        />
+      )}
     </div>
   );
 }

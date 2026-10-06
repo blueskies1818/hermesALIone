@@ -40,6 +40,7 @@ import {
 } from "./session-events";
 import { readFile, writeFile } from "fs/promises";
 import { exportConversation } from "./exportConversation";
+import * as thetaAgents from "./agents";
 import {
   uploadAttachment,
   discoverProviderModelsViaServer,
@@ -83,6 +84,7 @@ import {
   createProfile,
   deleteProfile,
   setActiveProfile,
+  getDefaultAgent,
 } from "./profiles";
 import {
   readMemory,
@@ -533,13 +535,13 @@ function setupIPC(): void {
     if (conn.mode === "ssh" && conn.ssh)
       return sshGetModelConfig(conn.ssh, profile);
     if (isRemoteMode()) {
-      const { ok, data } = await apiFetch("/api/model/auxiliary");
-      if (!ok) return { provider: "", model: "", baseUrl: "" };
-      const main = (data as Record<string, unknown>)?.main as Record<string, string> | undefined;
+      // Theta: the agent's own model, from the server.
+      const r = await thetaAgents.getAgentSettings(profile || "default");
+      if (!r.ok) return { provider: "", model: "", baseUrl: "" };
       return {
-        provider: main?.provider || "",
-        model: main?.model || "",
-        baseUrl: "",
+        provider: r.data.model.provider,
+        model: r.data.model.model,
+        baseUrl: r.data.model.base_url,
       };
     }
     return getModelConfig(profile);
@@ -570,11 +572,11 @@ function setupIPC(): void {
         return true;
       }
       if (isRemoteMode()) {
-        await apiFetch("/api/model/set", {
-          method: "POST",
-          body: { scope: "main", provider, model },
+        // Theta: write the chosen agent's model (not always the default's).
+        const r = await thetaAgents.updateAgentSettings(profile || "default", {
+          model: { provider, model, base_url: baseUrl },
         });
-        return true;
+        return r.ok;
       }
       const prev = getModelConfig(profile);
       setModelConfig(provider, model, baseUrl, profile);
@@ -1008,6 +1010,27 @@ function setupIPC(): void {
     return { ok: true, savedTo: choice.filePath };
   });
 
+  // Theta: agent settings, conversation policy, model catalog, MCP servers
+  ipcMain.handle("agent-settings", (_e, name: string) => thetaAgents.getAgentSettings(name));
+  ipcMain.handle("update-agent-settings", (_e, name: string, patch) =>
+    thetaAgents.updateAgentSettings(name, patch),
+  );
+  ipcMain.handle("session-policy", (_e, id: string) => thetaAgents.getSessionPolicy(id));
+  ipcMain.handle("set-session-tool", (_e, id: string, toolset: string, enabled: boolean | null) =>
+    thetaAgents.setSessionTool(id, toolset, enabled),
+  );
+  ipcMain.handle("set-session-project", (_e, id: string, project: string) =>
+    thetaAgents.setSessionProject(id, project),
+  );
+  ipcMain.handle("list-projects", () => thetaAgents.listProjects());
+  ipcMain.handle("list-model-options", () => thetaAgents.listModelOptions());
+  ipcMain.handle("theta-list-mcp", () => thetaAgents.listMcp());
+  ipcMain.handle("theta-add-mcp", (_e, server) => thetaAgents.addMcp(server));
+  ipcMain.handle("theta-toggle-mcp", (_e, name: string, enabled: boolean) =>
+    thetaAgents.toggleMcp(name, enabled),
+  );
+  ipcMain.handle("theta-delete-mcp", (_e, name: string) => thetaAgents.deleteMcp(name));
+
   // Theta: export a conversation as Markdown or PDF (save dialog)
   ipcMain.handle(
     "export-conversation",
@@ -1090,6 +1113,7 @@ function setupIPC(): void {
       return sshDeleteProfile(conn.ssh, name);
     return deleteProfile(name);
   });
+  ipcMain.handle("get-default-agent", () => getDefaultAgent());
   ipcMain.handle("set-active-profile", (_event, name: string) => {
     if (getConnectionConfig().mode !== "ssh") setActiveProfile(name);
     return true;

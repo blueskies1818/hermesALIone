@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Trash2 as Trash, Plus, Zap, Bot, Folder, Search, Download } from "lucide-react";
 import { useI18n } from "../../components/useI18n";
+import { ConversationControls } from "./ConversationControls";
 import type { UsageState } from "./types";
 
 export interface SessionAgentInfo {
@@ -20,6 +21,9 @@ interface ChatHeaderProps {
   onClear: () => void;
   onFind?: () => void;
   onExport?: (kind: "md" | "pdf") => void;
+  /** Bumped after replies / agent switches so the controls reload. */
+  policyKey?: unknown;
+  onPolicyChanged?: () => void;
 }
 
 function ExportMenu({ onExport }: { onExport: (kind: "md" | "pdf") => void }): React.JSX.Element {
@@ -76,6 +80,8 @@ export const ChatHeader = memo(function ChatHeader({
   onClear,
   onFind,
   onExport,
+  policyKey,
+  onPolicyChanged,
 }: ChatHeaderProps): React.JSX.Element {
   const { t } = useI18n();
 
@@ -96,11 +102,19 @@ export const ChatHeader = memo(function ChatHeader({
             {agentInfo.agent === "default" ? "Theta" : agentInfo.agent}
           </span>
         )}
-        {agentInfo?.project && (
-          <span className="chat-agent-chip chat-project-chip" title="Project">
-            <Folder size={12} />
-            {agentInfo.project}
-          </span>
+        {sessionId ? (
+          <ConversationControls
+            sessionId={sessionId}
+            refreshKey={`${policyKey ?? ""}|${agentInfo?.agent ?? ""}|${agentInfo?.project ?? ""}`}
+            onChanged={onPolicyChanged}
+          />
+        ) : (
+          agentInfo?.project && (
+            <span className="chat-agent-chip chat-project-chip" title="Project">
+              <Folder size={12} />
+              {agentInfo.project}
+            </span>
+          )
         )}
         {usage && <UsageBadge usage={usage} />}
       </div>

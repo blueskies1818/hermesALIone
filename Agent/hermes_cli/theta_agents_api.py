@@ -169,6 +169,28 @@ async def put_agent_settings(name: str, body: dict):
     return agent_settings(agent)
 
 
+@router.get("/api/theta/default-agent")
+async def get_default_agent():
+    return {"agent": roster.default_agent_name()}
+
+
+@router.put("/api/theta/default-agent")
+async def put_default_agent(body: dict):
+    """The agent new conversations start with (instead of switching the
+    whole server to another profile)."""
+    from hermes_cli.config import load_config, save_config
+
+    agent = _agent_name(str(body.get("agent") or roster.DEFAULT_AGENT))
+    config = load_config()
+    theta = config.setdefault("theta", {})
+    if agent == roster.DEFAULT_AGENT:
+        theta.pop("default_agent", None)
+    else:
+        theta["default_agent"] = agent
+    save_config(config)
+    return {"agent": roster.default_agent_name()}
+
+
 # ---------------------------------------------------------------------------
 # Per-conversation policy
 # ---------------------------------------------------------------------------

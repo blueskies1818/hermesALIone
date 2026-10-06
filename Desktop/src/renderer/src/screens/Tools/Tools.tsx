@@ -1,12 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useI18n } from "../../components/useI18n";
-
-interface ToolsetInfo {
-  key: string;
-  label: string;
-  description: string;
-  enabled: boolean;
-}
+import type { ApiResult, McpServerInfo, ToolRow } from "../../../../shared/agents";
 
 interface ToolsProps {
   profile?: string;
@@ -249,42 +243,204 @@ function ToolIcon({ toolKey }: { toolKey: string }): React.JSX.Element {
   );
 }
 
-interface McpServer {
-  name: string;
-  type: string;
-  enabled: boolean;
-  detail: string;
+const SERVER_ICON = (
+  <div className="tools-card-icon">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="2" width="20" height="8" rx="2" />
+      <rect x="2" y="14" width="20" height="8" rx="2" />
+      <circle cx="6" cy="6" r="1" />
+      <circle cx="6" cy="18" r="1" />
+    </svg>
+  </div>
+);
+
+/** "KEY=value" lines → object (blank lines ignored). */
+function parsePairs(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const at = line.indexOf("=");
+    if (at > 0) out[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+  }
+  return out;
 }
 
+function AddMcpForm({ onAdded }: { onAdded: (servers: McpServerInfo[]) => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<"stdio" | "http">("stdio");
+  const [name, setName] = useState("");
+  const [command, setCommand] = useState("");
+  const [args, setArgs] = useState("");
+  const [url, setUrl] = useState("");
+  const [secrets, setSecrets] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <button className="btn btn-secondary btn-sm" onClick={() => setOpen(true)}>
+        + Add MCP server
+      </button>
+    );
+  }
+
+  const submit = async (): Promise<void> => {
+    setError(null);
+    const pairs = parsePairs(secrets);
+    const r = await window.hermesAPI.thetaAddMcp(
+      kind === "stdio"
+        ? {
+            name: name.trim(),
+            command: command.trim(),
+            args: args.trim() ? args.trim().split(/\s+/) : [],
+            env: pairs,
+          }
+        : { name: name.trim(), url: url.trim(), headers: pairs },
+    );
+    if (!r.ok) {
+      setError(r.error);
+      return;
+    }
+    onAdded(r.data.servers);
+    setOpen(false);
+    setName("");
+    setCommand("");
+    setArgs("");
+    setUrl("");
+    setSecrets("");
+  };
+
+  return (
+    <div className="mcp-add">
+      <div className="mcp-add-row">
+        <select
+          className="input input-sm"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as "stdio" | "http")}
+        >
+          <option value="stdio">Command (stdio)</option>
+          <option value="http">URL (http)</option>
+        </select>
+        <input
+          className="input input-sm"
+          placeholder="name, e.g. github"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      {kind === "stdio" ? (
+        <div className="mcp-add-row">
+          <input
+            className="input input-sm"
+            placeholder="command, e.g. npx"
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+          />
+          <input
+            className="input input-sm"
+            placeholder="arguments, e.g. -y @modelcontextprotocol/server-github"
+            value={args}
+            onChange={(e) => setArgs(e.target.value)}
+          />
+        </div>
+      ) : (
+        <input
+          className="input input-sm"
+          placeholder="https://example.com/mcp"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+      )}
+      <textarea
+        className="input input-sm mcp-add-secrets"
+        placeholder={
+          kind === "stdio"
+            ? "Environment, one KEY=value per line (optional)"
+            : "Headers, one Name=value per line (optional)"
+        }
+        value={secrets}
+        onChange={(e) => setSecrets(e.target.value)}
+        rows={2}
+      />
+      <p className="mcp-add-hint">Values are stored on the server and never sent back to the app.</p>
+      {error && <div className="mcp-add-error">{error}</div>}
+      <div className="mcp-add-row">
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={submit}
+          disabled={!name.trim() || (kind === "stdio" ? !command.trim() : !url.trim())}
+        >
+          Add
+        </button>
+        <button className="btn btn-secondary btn-sm" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Theta: tools of the selected agent (profile) and the server's MCP servers.
+ * Toggles set the agent's defaults; a chat can still override them.
+ */
 function Tools({ profile }: ToolsProps): React.JSX.Element {
   const { t } = useI18n();
-  const [toolsets, setToolsets] = useState<ToolsetInfo[]>([]);
+  const agent = profile || "default";
+  const [tools, setTools] = useState<ToolRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([]);
+  const [restartNeeded, setRestartNeeded] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadToolsets = useCallback(async (): Promise<void> => {
+  const load = useCallback(async (): Promise<void> => {
     setLoading(true);
-    const [list, mcp] = await Promise.all([
-      window.hermesAPI.getToolsets(profile),
-      window.hermesAPI.listMcpServers(profile),
+    const [settings, mcp] = await Promise.all([
+      window.hermesAPI.agentSettings(agent),
+      window.hermesAPI.thetaListMcp(),
     ]);
-    setToolsets(list);
-    setMcpServers(mcp);
+    if (settings.ok) setTools(settings.data.tools);
+    else setError(settings.error);
+    if (mcp.ok) setMcpServers(mcp.data.servers);
     setLoading(false);
-  }, [profile]);
+  }, [agent]);
 
   useEffect(() => {
-    loadToolsets();
-  }, [loadToolsets]);
+    load();
+  }, [load]);
 
-  async function handleToggle(
-    key: string,
-    currentEnabled: boolean,
+  async function setDefault(name: string, enabled: boolean): Promise<void> {
+    setTools((prev) => prev.map((row) => (row.name === name ? { ...row, default: enabled } : row)));
+    const r = await window.hermesAPI.updateAgentSettings(agent, { tools: { [name]: enabled } });
+    if (r.ok) setTools(r.data.tools);
+    else setError(r.error);
+  }
+
+  async function mcpChanged(
+    promise: Promise<ApiResult<{ servers: McpServerInfo[] }>>,
   ): Promise<void> {
-    setToolsets((prev) =>
-      prev.map((t) => (t.key === key ? { ...t, enabled: !currentEnabled } : t)),
-    );
-    await window.hermesAPI.setToolsetEnabled(key, !currentEnabled, profile);
+    const r = await promise;
+    if (!r.ok) {
+      setError(r.error);
+      return;
+    }
+    setMcpServers(r.data.servers);
+    setRestartNeeded(true);
+    const settings = await window.hermesAPI.agentSettings(agent);
+    if (settings.ok) setTools(settings.data.tools);
+  }
+
+  async function applyRestart(): Promise<void> {
+    setRestarting(true);
+    await window.hermesAPI.restartGatewayForConfig().catch(() => false);
+    setRestarting(false);
+    setRestartNeeded(false);
   }
 
   if (loading) {
@@ -297,92 +453,120 @@ function Tools({ profile }: ToolsProps): React.JSX.Element {
     );
   }
 
+  const builtin = tools.filter((row) => row.kind === "builtin");
+  const usedBy = (name: string): ToolRow | undefined => tools.find((row) => row.name === name);
+
   return (
     <div className="tools-container">
       <div className="tools-header">
         <h2 className="tools-title">{t("tools.title")}</h2>
-        <p className="tools-subtitle">{t("tools.subtitle")}</p>
+        <p className="tools-subtitle">
+          Default tools for{" "}
+          <strong>{agent === "default" ? "Theta (default agent)" : agent}</strong>. A
+          conversation can still turn tools on or off for itself from the chat header.
+        </p>
       </div>
+      {error && <div className="mcp-add-error">{error}</div>}
 
       <div className="tools-grid">
-        {toolsets.map((t) => (
+        {builtin.map((row) => (
           <div
-            key={t.key}
-            className={`tools-card ${t.enabled ? "tools-card-enabled" : "tools-card-disabled"}`}
-            onClick={() => handleToggle(t.key, t.enabled)}
+            key={row.name}
+            className={`tools-card ${row.default ? "tools-card-enabled" : "tools-card-disabled"}`}
+            onClick={() => setDefault(row.name, !row.default)}
           >
             <div className="tools-card-top">
-              <ToolIcon toolKey={t.key} />
-              <label
-                className="tools-toggle"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <ToolIcon toolKey={row.name} />
+              <label className="tools-toggle" onClick={(e) => e.stopPropagation()}>
                 <input
                   type="checkbox"
-                  checked={t.enabled}
-                  onChange={() => handleToggle(t.key, t.enabled)}
+                  checked={row.default}
+                  onChange={() => setDefault(row.name, !row.default)}
                 />
                 <span className="tools-toggle-track" />
               </label>
             </div>
-            <div className="tools-card-label">{t.label}</div>
-            <div className="tools-card-description">{t.description}</div>
+            <div className="tools-card-label">{row.label}</div>
+            <div className="tools-card-description">{row.description}</div>
           </div>
         ))}
       </div>
 
-      {mcpServers.length > 0 && (
-        <>
-          <div className="tools-header" style={{ marginTop: 32 }}>
-            <h2 className="tools-title">{t("tools.mcpServers")}</h2>
-            <p
-              className="tools-subtitle"
-              dangerouslySetInnerHTML={{ __html: t("tools.mcpDescription") }}
-            />
-          </div>
-          <div className="tools-grid">
-            {mcpServers.map((s) => (
-              <div
-                key={s.name}
-                className={`tools-card ${s.enabled ? "tools-card-enabled" : "tools-card-disabled"}`}
-              >
-                <div className="tools-card-top">
-                  <div className="tools-card-icon">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="2" y="2" width="20" height="8" rx="2" />
-                      <rect x="2" y="14" width="20" height="8" rx="2" />
-                      <circle cx="6" cy="6" r="1" />
-                      <circle cx="6" cy="18" r="1" />
-                    </svg>
-                  </div>
-                  <span
-                    className="tools-card-description"
-                    style={{ fontSize: 10 }}
-                  >
-                    {s.type === "http" ? t("tools.http") : t("tools.stdio")}
-                  </span>
-                </div>
-                <div className="tools-card-label">{s.name}</div>
-                <div className="tools-card-description">
-                  {s.detail}
-                  {!s.enabled && (
-                    <span style={{ color: "var(--error)", marginLeft: 6 }}>
-                      ({t("tools.disabled")})
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
+      <div className="tools-header" style={{ marginTop: 32 }}>
+        <h2 className="tools-title">{t("tools.mcpServers")}</h2>
+        <p className="tools-subtitle">
+          Servers are shared by all agents; the switch on each card sets whether this agent uses it.
+        </p>
+      </div>
+      {restartNeeded && (
+        <div className="mcp-restart">
+          MCP changes take effect after the chat server restarts (running chats are interrupted).
+          <button className="btn btn-primary btn-sm" onClick={applyRestart} disabled={restarting}>
+            {restarting ? "Restarting…" : "Restart now"}
+          </button>
+        </div>
       )}
+      <div className="tools-grid">
+        {mcpServers.map((s) => {
+          const row = usedBy(s.name);
+          return (
+            <div
+              key={s.name}
+              className={`tools-card ${s.enabled && row?.default ? "tools-card-enabled" : "tools-card-disabled"}`}
+            >
+              <div className="tools-card-top">
+                {SERVER_ICON}
+                {row && s.enabled && (
+                  <label className="tools-toggle" title={`Use with ${agent}`}>
+                    <input
+                      type="checkbox"
+                      checked={row.default}
+                      onChange={() => setDefault(s.name, !row.default)}
+                    />
+                    <span className="tools-toggle-track" />
+                  </label>
+                )}
+              </div>
+              <div className="tools-card-label">{s.name}</div>
+              <div className="tools-card-description">
+                {s.type === "http" ? s.url : [s.command, ...s.args].join(" ")}
+              </div>
+              {(s.env_keys.length > 0 || s.header_keys.length > 0) && (
+                <div className="tools-card-description">
+                  {[...s.env_keys, ...s.header_keys].join(", ")} set
+                </div>
+              )}
+              <div className="mcp-card-actions">
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => mcpChanged(window.hermesAPI.thetaToggleMcp(s.name, !s.enabled))}
+                >
+                  {s.enabled ? "Disable for all" : "Enable"}
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    if (window.confirm(`Remove the MCP server '${s.name}'?`)) {
+                      void mcpChanged(window.hermesAPI.thetaDeleteMcp(s.name));
+                    }
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <AddMcpForm
+          onAdded={(servers) => {
+            setMcpServers(servers);
+            setRestartNeeded(true);
+            void load();
+          }}
+        />
+      </div>
     </div>
   );
 }

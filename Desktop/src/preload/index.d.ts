@@ -1,5 +1,16 @@
 import type { AppLocale } from "../shared/i18n/types";
 import type { Attachment } from "../shared/attachments";
+import type {
+  AgentSettings,
+  AgentSettingsPatch,
+  ApiResult,
+  McpServerInfo,
+  McpServerInput,
+  ProviderOption,
+  SessionPolicy,
+} from "../shared/agents";
+
+type McpResult = ApiResult<{ servers: McpServerInfo[]; restart_required?: boolean }>;
 
 interface ElectronAPI {
   process: {
@@ -209,7 +220,19 @@ interface HermesAPI {
     fileName: string,
     markdown: string,
   ) => Promise<{ ok: boolean; canceled?: boolean; savedTo?: string; error?: string }>;
+  agentSettings: (name: string) => Promise<ApiResult<AgentSettings>>;
+  updateAgentSettings: (name: string, patch: AgentSettingsPatch) => Promise<ApiResult<AgentSettings>>;
+  sessionPolicy: (id: string) => Promise<ApiResult<SessionPolicy>>;
+  setSessionTool: (id: string, toolset: string, enabled: boolean | null) => Promise<ApiResult<SessionPolicy>>;
+  setSessionProject: (id: string, project: string) => Promise<ApiResult<SessionPolicy>>;
+  listProjects: () => Promise<string[]>;
+  listModelOptions: () => Promise<ProviderOption[]>;
+  thetaListMcp: () => Promise<McpResult>;
+  thetaAddMcp: (server: McpServerInput) => Promise<McpResult>;
+  thetaToggleMcp: (name: string, enabled: boolean) => Promise<McpResult>;
+  thetaDeleteMcp: (name: string) => Promise<McpResult>;
   followUpSuggestions: (user: string, assistant: string) => Promise<string[]>;
+  getDefaultAgent: () => Promise<string>;
   speakText: (text: string) => Promise<{ success: boolean; chunks?: string[]; error?: string }>;
   getPathForFile: (file: File) => string;
   stageAttachment: (

@@ -1559,6 +1559,16 @@ class APIServerAdapter(BasePlatformAdapter):
                 assign_initial_agent(session_id, voice_agent_name())
             except Exception as exc:
                 logger.warning("Could not assign voice agent to %s: %s", session_id, exc)
+        else:
+            # Theta: other conversations start with the chosen default agent.
+            try:
+                from gateway.agent_roster import DEFAULT_AGENT, assign_initial_agent, default_agent_name
+
+                start_agent = default_agent_name()
+                if start_agent != DEFAULT_AGENT:
+                    assign_initial_agent(session_id, start_agent)
+            except Exception as exc:
+                logger.warning("Could not assign default agent to %s: %s", session_id, exc)
 
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:29]}"
         model_name = body.get("model", self._model_name)

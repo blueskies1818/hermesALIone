@@ -136,6 +136,21 @@ def voice_agent_name() -> str:
     return str(theta_cfg.get("voice_agent") or "voice")
 
 
+def default_agent_name() -> str:
+    """Agent new (non-voice) conversations start with (``theta.default_agent``)."""
+    from hermes_constants import get_default_hermes_root
+
+    theta_cfg = _read_config(get_default_hermes_root()).get("theta") or {}
+    name = str(theta_cfg.get("default_agent") or "").strip()
+    if not name:
+        return DEFAULT_AGENT
+    try:
+        name = normalize_agent_name(name)
+    except ValueError:
+        return DEFAULT_AGENT
+    return name if agent_exists(name) else DEFAULT_AGENT
+
+
 GENERAL_PROJECT = "general"
 
 

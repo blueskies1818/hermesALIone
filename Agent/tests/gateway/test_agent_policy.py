@@ -143,3 +143,14 @@ class TestSettingsApi:
         assert out["servers"][0]["enabled"] is False
         out = _run(api.delete_mcp("time"))
         assert out["servers"] == []
+
+
+class TestDefaultAgent:
+    def test_default_agent_setting(self):
+        assert roster.default_agent_name() == "default"
+        _make_agent("worker")
+        assert _run(api.put_default_agent({"agent": "worker"})) == {"agent": "worker"}
+        assert roster.default_agent_name() == "worker"
+        assert _run(api.put_default_agent({"agent": "default"})) == {"agent": "default"}
+        with pytest.raises(HTTPException):
+            _run(api.put_default_agent({"agent": "nobody"}))

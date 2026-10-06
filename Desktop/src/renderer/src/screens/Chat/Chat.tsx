@@ -66,7 +66,6 @@ function Chat({
   }, []);
 
   const { containerRef, bottomRef, isAwayFromBottom, jumpToBottom } = useChatScroll(messages);
-  const modelConfig = useModelConfig(profile);
   const {
     fastMode,
     toggle: toggleFastMode,
@@ -184,6 +183,9 @@ function Chat({
   // Theta: show which agent this conversation is talking to (and its
   // project). Refreshed after each reply and right after an agent switch.
   const [agentInfo, setAgentInfo] = useState<SessionAgentInfo | null>(null);
+  // The model picker shows (and changes) the model of the agent this
+  // conversation is talking to, not just the app's active profile.
+  const modelConfig = useModelConfig(agentInfo?.agent ?? profile);
   const refreshAgentInfo = useCallback(() => {
     if (!effectiveSessionId) { setAgentInfo(null); return; }
     window.hermesAPI.getSessionAgent(effectiveSessionId)
@@ -345,7 +347,7 @@ function Chat({
       onDrop={handleDrop}
     >
       <ChatHeader
-        sessionId={sessionId}
+        sessionId={effectiveSessionId}
         agentInfo={agentInfo}
         usage={usage}
         fastMode={fastMode}
@@ -355,6 +357,7 @@ function Chat({
         onClear={handleClear}
         onFind={() => setFindOpen(true)}
         onExport={handleExport}
+        onPolicyChanged={refreshAgentInfo}
       />
       {findOpen && (
         <FindBar containerRef={containerRef} contentKey={messages} onClose={() => setFindOpen(false)} />

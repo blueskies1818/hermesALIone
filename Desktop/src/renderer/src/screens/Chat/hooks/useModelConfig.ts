@@ -19,17 +19,20 @@ interface UseModelConfigResult {
 
 function groupModelsByProvider(
   models: { provider: string; model: string; name: string; baseUrl?: string }[],
+  providerNames: Record<string, string> = {},
 ): ModelGroup[] {
   const groupMap = new Map<string, ModelGroup>();
   for (const m of models) {
     if (!groupMap.has(m.provider)) {
       groupMap.set(m.provider, {
         provider: m.provider,
-        providerLabel: PROVIDERS.labels[m.provider] || m.provider,
+        providerLabel: providerNames[m.provider] || PROVIDERS.labels[m.provider] || m.provider,
         models: [],
       });
     }
-    groupMap.get(m.provider)!.models.push({
+    const group = groupMap.get(m.provider)!;
+    if (group.models.some((x) => x.model === m.model)) continue;
+    group.models.push({
       provider: m.provider,
       model: m.model,
       label: m.name,
@@ -47,14 +50,20 @@ export function useModelConfig(profile?: string): UseModelConfigResult {
   const [modelGroups, setModelGroups] = useState<ModelGroup[]>([]);
 
   const reload = useCallback(async (): Promise<void> => {
-    const [mc, savedModels] = await Promise.all([
+    const [mc, savedModels, options] = await Promise.all([
       window.hermesAPI.getModelConfig(profile),
       window.hermesAPI.listModels(),
+      window.hermesAPI.listModelOptions().catch(() => []),
     ]);
     setCurrentModel(mc.model);
     setCurrentProvider(mc.provider);
     setCurrentBaseUrl(mc.baseUrl);
-    setModelGroups(groupModelsByProvider(savedModels));
+    // Theta: the server's catalog (providers with keys) plus any saved entries.
+    const catalog = options.flatMap((o) =>
+      o.models.map((m) => ({ provider: o.slug, model: m, name: m })),
+    );
+    const names = Object.fromEntries(options.map((o) => [o.slug, o.name]));
+    setModelGroups(groupModelsByProvider([...catalog, ...savedModels], names));
   }, [profile]);
 
   // Initial load + reload whenever the profile changes (canonical

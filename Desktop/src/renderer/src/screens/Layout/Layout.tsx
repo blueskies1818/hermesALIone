@@ -182,6 +182,14 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
     goTo("chat");
   }, [goTo]);
 
+  // Theta: start on the agent new conversations begin with (server setting).
+  useEffect(() => {
+    window.hermesAPI
+      .getDefaultAgent()
+      .then((name) => setActiveProfile(name || "default"))
+      .catch(() => {});
+  }, []);
+
   const handleSelectProfile = useCallback((name: string) => {
     setActiveProfile(name);
     setMessages([]);

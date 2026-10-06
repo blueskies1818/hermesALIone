@@ -14,7 +14,10 @@ export interface ProfileInfo {
 }
 
 export async function listProfiles(): Promise<ProfileInfo[]> {
-  const { ok, data } = await apiFetch("/api/profiles");
+  const [{ ok, data }, startAgent] = await Promise.all([
+    apiFetch("/api/profiles"),
+    getDefaultAgent(),
+  ]);
   if (!ok) return [];
   const raw = (data as any)?.profiles || [];
   // Normalise the fields the renderer expects
@@ -22,7 +25,8 @@ export async function listProfiles(): Promise<ProfileInfo[]> {
     name: p.name || "default",
     path: p.path || "",
     isDefault: p.name === "default",
-    isActive: p.is_active ?? (p.name === "default"),
+    // Theta: "active" = the agent new conversations start with.
+    isActive: (p.name || "default") === startAgent,
     model: p.model || "",
     provider: p.provider || "auto",
     hasEnv: p.has_env ?? false,
@@ -55,8 +59,16 @@ export async function deleteProfile(name: string): Promise<{
   return { success: true };
 }
 
+/** Theta: agent new conversations start with (server setting). */
+export async function getDefaultAgent(): Promise<string> {
+  const { ok, data } = await apiFetch("/api/theta/default-agent");
+  return ok ? String((data as { agent?: string })?.agent || "default") : "default";
+}
+
+/**
+ * Theta: choosing an agent in Profiles makes new conversations start with
+ * it. It no longer switches the whole server to that profile's config.
+ */
 export async function setActiveProfile(name: string): Promise<void> {
-  await apiFetch(`/api/profiles/${encodeURIComponent(name)}/activate`, {
-    method: "POST",
-  });
+  await apiFetch("/api/theta/default-agent", { method: "PUT", body: { agent: name } });
 }

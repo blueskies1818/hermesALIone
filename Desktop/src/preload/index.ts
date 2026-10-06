@@ -1,6 +1,17 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { AppLocale } from "../shared/i18n/types";
 import type { Attachment } from "../shared/attachments";
+import type {
+  AgentSettings,
+  AgentSettingsPatch,
+  ApiResult,
+  McpServerInfo,
+  McpServerInput,
+  ProviderOption,
+  SessionPolicy,
+} from "../shared/agents";
+
+type McpResult = ApiResult<{ servers: McpServerInfo[]; restart_required?: boolean }>;
 
 const electronAPI = {
   process: {
@@ -200,6 +211,23 @@ const hermesAPI = {
     markdown: string,
   ): Promise<{ ok: boolean; canceled?: boolean; savedTo?: string; error?: string }> =>
     ipcRenderer.invoke("export-conversation", kind, fileName, markdown),
+  agentSettings: (name: string): Promise<ApiResult<AgentSettings>> =>
+    ipcRenderer.invoke("agent-settings", name),
+  updateAgentSettings: (name: string, patch: AgentSettingsPatch): Promise<ApiResult<AgentSettings>> =>
+    ipcRenderer.invoke("update-agent-settings", name, patch),
+  sessionPolicy: (id: string): Promise<ApiResult<SessionPolicy>> =>
+    ipcRenderer.invoke("session-policy", id),
+  setSessionTool: (id: string, toolset: string, enabled: boolean | null): Promise<ApiResult<SessionPolicy>> =>
+    ipcRenderer.invoke("set-session-tool", id, toolset, enabled),
+  setSessionProject: (id: string, project: string): Promise<ApiResult<SessionPolicy>> =>
+    ipcRenderer.invoke("set-session-project", id, project),
+  listProjects: (): Promise<string[]> => ipcRenderer.invoke("list-projects"),
+  listModelOptions: (): Promise<ProviderOption[]> => ipcRenderer.invoke("list-model-options"),
+  thetaListMcp: (): Promise<McpResult> => ipcRenderer.invoke("theta-list-mcp"),
+  thetaAddMcp: (server: McpServerInput): Promise<McpResult> => ipcRenderer.invoke("theta-add-mcp", server),
+  thetaToggleMcp: (name: string, enabled: boolean): Promise<McpResult> =>
+    ipcRenderer.invoke("theta-toggle-mcp", name, enabled),
+  thetaDeleteMcp: (name: string): Promise<McpResult> => ipcRenderer.invoke("theta-delete-mcp", name),
   followUpSuggestions: (user: string, assistant: string): Promise<string[]> =>
     ipcRenderer.invoke("follow-up-suggestions", user, assistant),
   speakText: (text: string): Promise<{ success: boolean; chunks?: string[]; error?: string }> =>
@@ -438,6 +466,7 @@ const hermesAPI = {
   ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("delete-profile", name),
 
+  getDefaultAgent: (): Promise<string> => ipcRenderer.invoke("get-default-agent"),
   setActiveProfile: (name: string): Promise<boolean> =>
     ipcRenderer.invoke("set-active-profile", name),
 
