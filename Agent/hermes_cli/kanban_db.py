@@ -3539,10 +3539,12 @@ def resolve_workspace(task: Task, *, board: Optional[str] = None) -> Path:
             )
         # Theta: create <repo>/.worktrees/<name> on the task's branch now,
         # so the worker starts inside an isolated checkout.
+        # Outside a git repo the upstream behaviour stays: the worker creates it.
         if p.parent.name == ".worktrees":
-            from tools.theta_work import ensure_worktree
+            from tools.theta_work import ensure_worktree, repo_root
 
-            return ensure_worktree(p, getattr(task, "branch_name", None))
+            if repo_root(str(p.parent.parent)) is not None:
+                return ensure_worktree(p, getattr(task, "branch_name", None))
         return p
     raise ValueError(f"unknown workspace_kind: {kind}")
 
