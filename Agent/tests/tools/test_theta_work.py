@@ -78,3 +78,50 @@ def test_verify_refuses_dangerous_commands(tmp_path):
 def test_no_verify_command_is_a_no_op(tmp_path):
     assert theta_work.verify_completion(str(tmp_path), {"tests_run": 3}) == (None, {"tests_run": 3})
     assert theta_work.verify_completion(None, {"verify_command": "x"}) == (None, {"verify_command": "x"})
+
+
+def test_repo_mentioned_finds_repo_paths(repo, tmp_path):
+    body = f"Please change {repo}/a.txt, then report. Also see {tmp_path}."
+    assert theta_work.repo_mentioned("title", body) == str(repo.resolve())
+    assert theta_work.repo_mentioned(f"Work in `{repo}`.") == str(repo.resolve())
+    assert theta_work.repo_mentioned("no paths here", None) is None
+    assert theta_work.repo_mentioned(f"Notes in {tmp_path}") is None
+
+
+def _task_branch(repo, name, content):
+    path, branch = theta_work.plan_worktree(str(repo), name)
+    wt = theta_work.ensure_worktree(Path(path), branch)
+    (wt / "a.txt").write_text(content, encoding="utf-8")
+    _git(wt, "commit", "-qam", name)
+    return wt, branch
+
+
+def test_auto_merge_is_off_by_default(repo):
+    wt, branch = _task_branch(repo, "one", "changed\n")
+    assert theta_work.auto_merge(wt, branch) is None
+
+
+def test_auto_merge_merges_clean_branch(repo, monkeypatch):
+    monkeypatch.setattr(theta_work, "merge_policy", lambda: "auto")
+    wt, branch = _task_branch(repo, "one", "changed\n")
+    note = theta_work.auto_merge(wt, branch)
+    assert note.startswith("Merged") and (repo / "a.txt").read_text(encoding="utf-8") == "changed\n"
+
+
+def test_auto_merge_conflict_is_aborted(repo, monkeypatch):
+    monkeypatch.setattr(theta_work, "merge_policy", lambda: "auto")
+    wt, branch = _task_branch(repo, "one", "theirs\n")
+    (repo / "a.txt").write_text("ours\n", encoding="utf-8")
+    _git(repo, "commit", "-qam", "ours")
+    note = theta_work.auto_merge(wt, branch)
+    assert "conflicts" in note
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True)
+    assert status.stdout.strip() == "" and (repo / "a.txt").read_text(encoding="utf-8") == "ours\n"
+
+
+def test_auto_merge_skips_dirty_checkout(repo, monkeypatch):
+    monkeypatch.setattr(theta_work, "merge_policy", lambda: "auto")
+    wt, branch = _task_branch(repo, "one", "changed\n")
+    (repo / "a.txt").write_text("user edit\n", encoding="utf-8")
+    assert "uncommitted" in theta_work.auto_merge(wt, branch)
+    assert (repo / "a.txt").read_text(encoding="utf-8") == "user edit\n"

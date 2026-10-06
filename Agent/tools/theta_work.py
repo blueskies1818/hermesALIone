@@ -52,6 +52,27 @@ def repo_root(path: str) -> Optional[Path]:
     return Path(out.stdout.strip()).resolve()
 
 
+_ABS_PATH = re.compile(r"(?:[A-Za-z]:[\\/]|/)[^\s`'\"<>|*?]+")
+
+
+def repo_mentioned(*texts: Optional[str]) -> Optional[str]:
+    """The first git repo named by an absolute path in ``texts`` (or None).
+
+    Lets the server isolate coding work even when the creating agent forgot
+    to pass ``repo``.
+    """
+    for text in texts:
+        for match in _ABS_PATH.finditer(str(text or "")):
+            candidate = match.group(0).rstrip(".,;:)]}")
+            p = Path(candidate)
+            if p.is_file():
+                p = p.parent
+            root = repo_root(str(p)) if p.is_dir() else None
+            if root is not None and WORKTREE_DIR not in root.parts:
+                return str(root)
+    return None
+
+
 def plan_worktree(repo: str, title: str) -> tuple[str, str]:
     """``(worktree_path, branch)`` for a new task in ``repo``.
 
@@ -107,6 +128,44 @@ def remove_worktree_if_clean(path: Path) -> bool:
         return False
     root = path.parent.parent
     return _git(["worktree", "remove", str(path)], root, timeout=120).returncode == 0
+
+
+def merge_policy() -> str:
+    """``theta.work.merge``: ``never`` (default) or ``auto``."""
+    try:
+        from gateway.agent_roster import _read_config
+        from hermes_constants import get_default_hermes_root
+
+        work = (_read_config(get_default_hermes_root()).get("theta") or {}).get("work") or {}
+        value = str(work.get("merge") or "never").strip().lower()
+    except Exception:
+        return "never"
+    return value if value in ("never", "auto") else "never"
+
+
+def auto_merge(worktree: Path, branch: Optional[str]) -> Optional[str]:
+    """Merge a finished task branch into the repo's checked-out branch.
+
+    Only when ``theta.work.merge`` is ``auto``, the main checkout is clean and
+    the merge has no conflicts. Returns a one-line note, or None when the
+    policy is off.
+    """
+    if merge_policy() != "auto" or not branch:
+        return None
+    worktree = Path(worktree)
+    if worktree.parent.name != WORKTREE_DIR:
+        return None
+    root = worktree.parent.parent
+    target = _git(["branch", "--show-current"], root).stdout.strip()
+    if not target:
+        return f"Not merged: {root} is not on a branch."
+    if _git(["status", "--porcelain", "--untracked-files=no"], root).stdout.strip():
+        return f"Not merged: the checkout at {root} has uncommitted changes; merge {branch} by hand."
+    out = _git(["merge", "--no-ff", "--no-edit", branch], root, timeout=120)
+    if out.returncode != 0:
+        _git(["merge", "--abort"], root)
+        return f"Not merged: {branch} conflicts with {target}; it needs a manual merge."
+    return f"Merged {branch} into {target}."
 
 
 def _command_problem(command: str) -> Optional[str]:

@@ -557,11 +557,22 @@ def _handle_complete(args: dict, **kw) -> str:
                     f"could not complete {tid} (unknown id or already terminal)"
                 )
             run = kb.latest_run(conn, tid)
+            merge_note = None
             if task_row and task_row.workspace_kind == "worktree" and task_row.workspace_path:
+                from tools.theta_work import auto_merge
+
+                try:
+                    merge_note = auto_merge(Path(task_row.workspace_path), task_row.branch_name)
+                    if merge_note:
+                        kb.add_comment(conn, tid, "theta", merge_note)
+                except Exception:
+                    logger.warning("auto-merge failed for %s", tid, exc_info=True)
                 try:
                     remove_worktree_if_clean(Path(task_row.workspace_path))
                 except Exception:
                     logger.debug("worktree cleanup failed", exc_info=True)
+            if merge_note:
+                return _ok(task_id=tid, run_id=run.id if run else None, merge=merge_note)
             return _ok(task_id=tid, run_id=run.id if run else None)
         finally:
             conn.close()
@@ -735,12 +746,19 @@ def _handle_create(args: dict, **kw) -> str:
     workspace_kind = args.get("workspace_kind")
     workspace_path = args.get("workspace_path")
     branch_name = None
-    if args.get("repo"):
+    repo = args.get("repo")
+    if not repo and not workspace_kind and not workspace_path:
+        # Theta: a task about a git repo works in an isolated worktree even
+        # if the creator didn't say so.
+        from tools.theta_work import repo_mentioned
+
+        repo = repo_mentioned(title, body)
+    if repo:
         # Theta: coding tasks get their own worktree + branch in that repo.
         from tools.theta_work import plan_worktree
 
         try:
-            workspace_path, branch_name = plan_worktree(str(args.get("repo")), str(title))
+            workspace_path, branch_name = plan_worktree(str(repo), str(title))
         except ValueError as e:
             return tool_error(f"kanban_create: {e}")
         workspace_kind = "worktree"
