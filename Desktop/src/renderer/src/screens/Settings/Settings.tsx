@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { BackgroundWorkSettings } from "./BackgroundWorkSettings";
 import { useTheme } from "../../components/ThemeProvider";
 import { THEME_OPTIONS } from "../../constants";
 import { useI18n } from "../../components/useI18n";
@@ -539,6 +540,8 @@ function Settings({ profile }: { profile?: string }): React.JSX.Element {
           )}
         </div>
       </div>
+
+      <BackgroundWorkSettings />
 
       <div className="settings-section">
         <div className="settings-section-title">Community</div>

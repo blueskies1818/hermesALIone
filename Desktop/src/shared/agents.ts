@@ -78,5 +78,11 @@ export interface AgentSkill {
   enabled: boolean;
 }
 
+export interface WorkSettings {
+  merge: "never" | "auto";
+  daily_tokens: number;
+  used_today: number;
+}
+
 /** `{ok, data}` or `{ok: false, error}` from the server. */
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string };

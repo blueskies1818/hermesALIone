@@ -1022,6 +1022,8 @@ function setupIPC(): void {
   ipcMain.handle("install-skill-for", (_e, identifier: string, agents?: string[]) =>
     thetaAgents.installSkillFor(identifier, agents),
   );
+  ipcMain.handle("work-settings", () => thetaAgents.getWorkSettings());
+  ipcMain.handle("update-work-settings", (_e, patch) => thetaAgents.updateWorkSettings(patch));
   ipcMain.handle("session-policy", (_e, id: string) => thetaAgents.getSessionPolicy(id));
   ipcMain.handle("set-session-tool", (_e, id: string, toolset: string, enabled: boolean | null) =>
     thetaAgents.setSessionTool(id, toolset, enabled),

@@ -8,6 +8,7 @@ import type {
   McpServerInput,
   ProviderOption,
   SessionPolicy,
+  WorkSettings,
 } from "../shared/agents";
 
 // Theta: thin wrappers over hermes_cli/theta_agents_api.py. Everything
@@ -57,6 +58,11 @@ export const installSkillFor = (
   agents?: string[],
 ): Promise<ApiResult<{ ok: boolean; installed: string[] }>> =>
   call("/api/theta/skills/install", { method: "POST", body: { identifier, agents } });
+
+export const getWorkSettings = (): Promise<ApiResult<WorkSettings>> => call("/api/theta/work");
+export const updateWorkSettings = (
+  patch: Partial<Pick<WorkSettings, "merge" | "daily_tokens">>,
+): Promise<ApiResult<WorkSettings>> => call("/api/theta/work", { method: "PUT", body: patch });
 
 export const getSessionPolicy = (id: string): Promise<ApiResult<SessionPolicy>> =>
   call(sessionPath(id, "policy"));

@@ -190,3 +190,15 @@ class TestAgentSkills:
         assert {s["name"]: s["enabled"] for s in _run(api.get_agent_skills("worker"))["skills"]}["gamma"]
         assert not {s["name"]: s["enabled"] for s in _run(api.get_agent_skills("voice"))["skills"]}["gamma"]
         assert not {s["name"]: s["enabled"] for s in _run(api.get_agent_skills("default"))["skills"]}["gamma"]
+
+
+class TestWorkSettings:
+    def test_round_trip(self):
+        out = _run(api.get_work_settings())
+        assert out["merge"] == "never" and out["daily_tokens"] == 0
+        out = _run(api.put_work_settings({"merge": "auto", "daily_tokens": 500000}))
+        assert out["merge"] == "auto" and out["daily_tokens"] == 500000
+        with pytest.raises(HTTPException):
+            _run(api.put_work_settings({"merge": "sometimes"}))
+        with pytest.raises(HTTPException):
+            _run(api.put_work_settings({"daily_tokens": -1}))

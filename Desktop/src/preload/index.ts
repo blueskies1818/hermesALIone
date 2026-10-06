@@ -10,6 +10,7 @@ import type {
   McpServerInput,
   ProviderOption,
   SessionPolicy,
+  WorkSettings,
 } from "../shared/agents";
 
 type McpResult = ApiResult<{ servers: McpServerInfo[]; restart_required?: boolean }>;
@@ -228,6 +229,10 @@ const hermesAPI = {
     agents?: string[],
   ): Promise<ApiResult<{ ok: boolean; installed: string[] }>> =>
     ipcRenderer.invoke("install-skill-for", identifier, agents),
+  workSettings: (): Promise<ApiResult<WorkSettings>> => ipcRenderer.invoke("work-settings"),
+  updateWorkSettings: (
+    patch: Partial<Pick<WorkSettings, "merge" | "daily_tokens">>,
+  ): Promise<ApiResult<WorkSettings>> => ipcRenderer.invoke("update-work-settings", patch),
   sessionPolicy: (id: string): Promise<ApiResult<SessionPolicy>> =>
     ipcRenderer.invoke("session-policy", id),
   setSessionTool: (id: string, toolset: string, enabled: boolean | null): Promise<ApiResult<SessionPolicy>> =>

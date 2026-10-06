@@ -9,6 +9,7 @@ import type {
   McpServerInput,
   ProviderOption,
   SessionPolicy,
+  WorkSettings,
 } from "../shared/agents";
 
 type McpResult = ApiResult<{ servers: McpServerInfo[]; restart_required?: boolean }>;
@@ -232,6 +233,10 @@ interface HermesAPI {
     identifier: string,
     agents?: string[],
   ) => Promise<ApiResult<{ ok: boolean; installed: string[] }>>;
+  workSettings: () => Promise<ApiResult<WorkSettings>>;
+  updateWorkSettings: (
+    patch: Partial<Pick<WorkSettings, "merge" | "daily_tokens">>,
+  ) => Promise<ApiResult<WorkSettings>>;
   sessionPolicy: (id: string) => Promise<ApiResult<SessionPolicy>>;
   setSessionTool: (id: string, toolset: string, enabled: boolean | null) => Promise<ApiResult<SessionPolicy>>;
   setSessionProject: (id: string, project: string) => Promise<ApiResult<SessionPolicy>>;

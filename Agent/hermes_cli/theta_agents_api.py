@@ -271,6 +271,54 @@ async def install_skill_for(body: dict):
     return {"ok": True, "installed": added}
 
 
+# ---------------------------------------------------------------------------
+# Background work settings (theta.work): merge gate and daily token budget
+# ---------------------------------------------------------------------------
+
+def _work_settings() -> dict:
+    import time
+
+    from tools import theta_work
+
+    work = theta_work._work_config()
+    budget = work.get("budget") if isinstance(work.get("budget"), dict) else {}
+    midnight = time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1))
+    return {
+        "merge": theta_work.merge_policy(),
+        "daily_tokens": int(budget.get("daily_tokens") or 0),
+        "used_today": theta_work.tokens_used_since(midnight),
+    }
+
+
+@router.get("/api/theta/work")
+async def get_work_settings():
+    return _work_settings()
+
+
+@router.put("/api/theta/work")
+async def put_work_settings(body: dict):
+    from hermes_cli.config import load_config, save_config
+
+    config = load_config()
+    theta = config.setdefault("theta", {})
+    work = theta.setdefault("work", {})
+    if "merge" in body:
+        merge = str(body.get("merge") or "").strip().lower()
+        if merge not in ("never", "auto"):
+            raise HTTPException(status_code=400, detail="merge must be 'never' or 'auto'")
+        work["merge"] = merge
+    if "daily_tokens" in body:
+        try:
+            cap = int(body.get("daily_tokens") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="daily_tokens must be a number")
+        if cap < 0:
+            raise HTTPException(status_code=400, detail="daily_tokens can't be negative")
+        work.setdefault("budget", {})["daily_tokens"] = cap
+    save_config(config)
+    return _work_settings()
+
+
 @router.get("/api/theta/default-agent")
 async def get_default_agent():
     return {"agent": roster.default_agent_name()}
