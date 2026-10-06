@@ -956,13 +956,30 @@ class APIServerAdapter(BasePlatformAdapter):
             runtime_kwargs = _resolve_runtime_agent_kwargs()
             model = _resolve_gateway_model()
             user_config = _load_gateway_config()
-        enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
+
+        # Theta: per-agent default tools + per-conversation overrides,
+        # project scope and the agent's own fallback chain.
+        try:
+            from gateway import agent_policy
+
+            enabled_toolsets = agent_policy.effective_toolsets(user_config, session_id)
+            agent_policy.enforce_fixed_project(session_id, user_config)
+            scope_note = agent_policy.scope_prompt(session_id)
+            if scope_note:
+                ephemeral_system_prompt = (
+                    f"{ephemeral_system_prompt}\n\n{scope_note}" if ephemeral_system_prompt else scope_note
+                )
+            agent_fallback = agent_policy.fallback_chain(agent_config)
+        except Exception:
+            logger.warning("Theta agent policy failed; using platform defaults", exc_info=True)
+            enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
+            agent_fallback = None
 
         max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
 
         # Load fallback provider chain so the API server platform has the
         # same fallback behaviour as Telegram/Discord/Slack (fixes #4954).
-        fallback_model = GatewayRunner._load_fallback_model()
+        fallback_model = agent_fallback or GatewayRunner._load_fallback_model()
 
         agent = AIAgent(
             model=model,

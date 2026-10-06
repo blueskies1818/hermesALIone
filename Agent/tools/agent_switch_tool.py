@@ -113,6 +113,16 @@ def set_project_tool(project: str, session_id: str) -> str:
         return _error("Projects can only be set inside a conversation session.")
     if not str(project or "").strip():
         return _error("Give the project a short name.")
+    # Theta: agents limited to a project can't move the conversation elsewhere.
+    from gateway import agent_policy
+
+    scope = agent_policy.session_scope(session_id)
+    wanted = " ".join(str(project).split())[:80]
+    if scope["locked"] and scope["project"] and wanted.lower() != scope["project"].lower():
+        return _error(
+            f"This conversation is limited to the project '{scope['project']}' and can't be moved. "
+            "Ask the user to change the project in the app if needed."
+        )
     name = roster.set_session_project(session_id, project)
     return json.dumps({"success": True, "project": name})
 

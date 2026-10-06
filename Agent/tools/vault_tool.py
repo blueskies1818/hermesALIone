@@ -1038,6 +1038,52 @@ def get_vault_status() -> Dict:
 
 
 # ---------------------------------------------------------------------------
+# Theta: project scope (agents limited to one project see only its bucket)
+# ---------------------------------------------------------------------------
+
+def _scope_for(kw: Dict) -> tuple:
+    try:
+        from gateway import agent_policy
+
+        return agent_policy.allowed_bucket(kw.get("task_id") or None)
+    except Exception:
+        logger.debug("vault scope lookup failed", exc_info=True)
+        return False, None
+
+
+def _scoped(handler, kind: str):
+    def run(args: Dict, **kw) -> str:
+        restricted, allowed = _scope_for(kw)
+        if not restricted:
+            return handler(args, **kw)
+        if not allowed:
+            return tool_error(
+                "This conversation must stay in one project, but none is chosen yet. "
+                "Ask the user which project, then call set_project."
+            )
+        args = dict(args or {})
+        if kind == "list":
+            data = json.loads(handler(args, **kw))
+            if isinstance(data, dict) and isinstance(data.get("buckets"), list):
+                data["buckets"] = [b for b in data["buckets"] if b.get("id") == allowed]
+                data["bucket_count"] = len(data["buckets"])
+                data["project_scope"] = allowed
+            return json.dumps(data)
+        requested = (args.get("bucket") or "").strip()
+        if kind == "create":
+            requested = _slugify(args.get("name") or "")
+        if requested and requested != allowed:
+            return tool_error(
+                f"This conversation is limited to the vault bucket '{allowed}'."
+            )
+        if kind in ("search", "browse"):
+            args["bucket"] = allowed
+        return handler(args, **kw)
+
+    return run
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -1045,7 +1091,7 @@ registry.register(
     name="vault_list_buckets",
     toolset="vault",
     schema=VAULT_LIST_BUCKETS_SCHEMA,
-    handler=_handle_list_buckets,
+    handler=_scoped(_handle_list_buckets, "list"),
     check_fn=_check_vault,
     emoji="🗄️",
 )
@@ -1054,7 +1100,7 @@ registry.register(
     name="vault_browse",
     toolset="vault",
     schema=VAULT_BROWSE_SCHEMA,
-    handler=_handle_browse,
+    handler=_scoped(_handle_browse, "browse"),
     check_fn=_check_vault,
     emoji="📂",
 )
@@ -1063,7 +1109,7 @@ registry.register(
     name="vault_search",
     toolset="vault",
     schema=VAULT_SEARCH_SCHEMA,
-    handler=_handle_search,
+    handler=_scoped(_handle_search, "search"),
     check_fn=_check_vault,
     emoji="🔍",
     max_result_size_chars=50_000,
@@ -1073,7 +1119,7 @@ registry.register(
     name="vault_create_bucket",
     toolset="vault",
     schema=VAULT_CREATE_BUCKET_SCHEMA,
-    handler=_handle_create_bucket,
+    handler=_scoped(_handle_create_bucket, "create"),
     check_fn=_check_vault,
     emoji="📚",
 )

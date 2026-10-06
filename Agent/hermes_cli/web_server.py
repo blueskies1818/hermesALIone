@@ -4677,6 +4677,13 @@ try:
 except Exception as exc:
     _log.warning("Failed to mount Theta client API routes: %s", exc)
 
+# Theta: agent settings, per-conversation policy, MCP servers.
+try:
+    from hermes_cli.theta_agents_api import router as theta_agents_router
+    app.include_router(theta_agents_router)
+except Exception as exc:
+    _log.warning("Failed to mount Theta agents API routes: %s", exc)
+
 # Mount plugin API routes before the SPA catch-all.
 _mount_plugin_api_routes()
 
