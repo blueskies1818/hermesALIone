@@ -722,6 +722,7 @@ function setupIPC(): void {
       }
 
       if (currentChatAbort) {
+        console.log("[chat] aborted previous reply: a new message was sent");
         currentChatAbort();
       }
 
@@ -814,8 +815,9 @@ function setupIPC(): void {
     },
   );
 
-  ipcMain.handle("abort-chat", () => {
+  ipcMain.handle("abort-chat", (_event, reason?: string) => {
     if (currentChatAbort) {
+      console.log(`[chat] aborted reply: ${reason || "stop requested by the app"}`);
       currentChatAbort();
       currentChatAbort = null;
     }
@@ -1867,6 +1869,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   stopHealthPolling();
   if (currentChatAbort) {
+    console.log("[chat] aborted reply: the app is quitting");
     currentChatAbort();
     currentChatAbort = null;
   }

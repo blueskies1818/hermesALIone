@@ -129,7 +129,7 @@ export function useChatActions({
   );
 
   const handleAbort = useCallback(() => {
-    window.hermesAPI.abortChat();
+    window.hermesAPI.abortChat("chat: stop button");
     setIsLoading(false);
     setStreamStarted(false);
     setTimeout(() => chatInputRef.current?.focus(), 50);

@@ -146,7 +146,7 @@ function Chat({
 
   const handleClear = useCallback(() => {
     if (isLoading) {
-      window.hermesAPI.abortChat();
+      window.hermesAPI.abortChat("chat: conversation cleared");
       setIsLoading(false);
     }
     setStreamStarted(false);

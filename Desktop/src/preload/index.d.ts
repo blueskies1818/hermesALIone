@@ -213,7 +213,7 @@ interface HermesAPI {
     attachments?: Attachment[],
     voiceMode?: boolean,
   ) => Promise<{ response: string; sessionId?: string }>;
-  abortChat: () => Promise<void>;
+  abortChat: (reason?: string) => Promise<void>;
   sendAudio: (
     base64Audio: string,
   ) => Promise<{ success: boolean; transcript: string; error?: string; provider?: string }>;

@@ -454,7 +454,7 @@ export function useVoiceMode(
     ttsChunksReceivedRef.current = 0;
     ttsChunksPlayedRef.current = 0;
     dispatchTts({ chunksReceived: 0, chunksPlayed: 0, playbackState: "idle", lastError: "" });
-    window.hermesAPI.abortChat();
+    window.hermesAPI.abortChat("voice: interrupted (orb click or mic off)");
     setVoiceState("idle");
   }, [stopVadInternal, setVoiceState]);
 

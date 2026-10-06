@@ -200,7 +200,7 @@ const hermesAPI = {
       voiceMode,
     ),
 
-  abortChat: (): Promise<void> => ipcRenderer.invoke("abort-chat"),
+  abortChat: (reason?: string): Promise<void> => ipcRenderer.invoke("abort-chat", reason),
 
   sendAudio: (
     base64Audio: string,

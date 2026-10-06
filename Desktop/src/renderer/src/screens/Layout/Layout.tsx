@@ -176,7 +176,7 @@ function Layout({ onDisconnect }: LayoutProps): React.JSX.Element {
 
   const handleNewChat = useCallback(() => {
     // Abort any in-flight chat before clearing
-    window.hermesAPI.abortChat();
+    window.hermesAPI.abortChat("new chat");
     setMessages([]);
     setCurrentSessionId(null);
     goTo("chat");
