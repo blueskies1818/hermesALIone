@@ -3537,6 +3537,12 @@ def resolve_workspace(task: Task, *, board: Optional[str] = None) -> Path:
                 f"task {task.id} has non-absolute worktree path "
                 f"{task.workspace_path!r}; use an absolute path"
             )
+        # Theta: create <repo>/.worktrees/<name> on the task's branch now,
+        # so the worker starts inside an isolated checkout.
+        if p.parent.name == ".worktrees":
+            from tools.theta_work import ensure_worktree
+
+            return ensure_worktree(p, getattr(task, "branch_name", None))
         return p
     raise ValueError(f"unknown workspace_kind: {kind}")
 

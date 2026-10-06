@@ -516,6 +516,15 @@ def _handle_complete(args: dict, **kw) -> str:
     try:
         kb, conn = _connect(board=board)
         try:
+            # Theta: re-run the worker's verify_command before accepting "done".
+            task_row = kb.get_task(conn, tid)
+            from tools.theta_work import remove_worktree_if_clean, verify_completion
+
+            verify_error, metadata = verify_completion(
+                task_row.workspace_path if task_row else None, metadata,
+            )
+            if verify_error:
+                return tool_error(verify_error)
             try:
                 ok = kb.complete_task(
                     conn, tid,
@@ -548,6 +557,11 @@ def _handle_complete(args: dict, **kw) -> str:
                     f"could not complete {tid} (unknown id or already terminal)"
                 )
             run = kb.latest_run(conn, tid)
+            if task_row and task_row.workspace_kind == "worktree" and task_row.workspace_path:
+                try:
+                    remove_worktree_if_clean(Path(task_row.workspace_path))
+                except Exception:
+                    logger.debug("worktree cleanup failed", exc_info=True)
             return _ok(task_id=tid, run_id=run.id if run else None)
         finally:
             conn.close()
@@ -720,7 +734,17 @@ def _handle_create(args: dict, **kw) -> str:
     priority = args.get("priority")
     workspace_kind = args.get("workspace_kind")
     workspace_path = args.get("workspace_path")
-    if not workspace_kind:
+    branch_name = None
+    if args.get("repo"):
+        # Theta: coding tasks get their own worktree + branch in that repo.
+        from tools.theta_work import plan_worktree
+
+        try:
+            workspace_path, branch_name = plan_worktree(str(args.get("repo")), str(title))
+        except ValueError as e:
+            return tool_error(f"kanban_create: {e}")
+        workspace_kind = "worktree"
+    elif not workspace_kind:
         workspace_kind, workspace_path = _default_workspace(str(title), workspace_path)
     triage, bool_error = _parse_bool_arg(args, "triage")
     if bool_error:
@@ -756,6 +780,7 @@ def _handle_create(args: dict, **kw) -> str:
                 priority=int(priority) if priority is not None else 0,
                 workspace_kind=str(workspace_kind),
                 workspace_path=workspace_path,
+                branch_name=branch_name,
                 triage=triage,
                 idempotency_key=idempotency_key,
                 max_runtime_seconds=(
@@ -968,7 +993,10 @@ KANBAN_COMPLETE_SCHEMA = {
                     "Free-form dict of structured facts about this "
                     "attempt — {\"changed_files\": [...], \"tests_run\": 12, "
                     "\"findings\": [...]}. Surfaced to downstream "
-                    "workers alongside ``summary``."
+                    "workers alongside ``summary``. For code changes include "
+                    "\"verify_command\" (e.g. \"python -m pytest -q\"): it is "
+                    "re-run in your workspace and the task only completes "
+                    "if it passes."
                 ),
             },
             "result": {
@@ -1164,6 +1192,15 @@ KANBAN_CREATE_SCHEMA = {
                 "description": (
                     "Dispatcher tiebreaker. Higher = picked sooner "
                     "when multiple ready tasks share an assignee."
+                ),
+            },
+            "repo": {
+                "type": "string",
+                "description": (
+                    "Absolute path of a git repository to change. The task then "
+                    "runs in its own git worktree on a new branch, so the "
+                    "user's checkout is never touched. Use this for coding "
+                    "tasks instead of workspace_kind/workspace_path."
                 ),
             },
             "workspace_kind": {
