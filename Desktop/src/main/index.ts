@@ -1015,6 +1015,13 @@ function setupIPC(): void {
   ipcMain.handle("update-agent-settings", (_e, name: string, patch) =>
     thetaAgents.updateAgentSettings(name, patch),
   );
+  ipcMain.handle("agent-skills", (_e, name: string) => thetaAgents.getAgentSkills(name));
+  ipcMain.handle("set-agent-skills", (_e, name: string, skills: Record<string, boolean>) =>
+    thetaAgents.setAgentSkills(name, skills),
+  );
+  ipcMain.handle("install-skill-for", (_e, identifier: string, agents?: string[]) =>
+    thetaAgents.installSkillFor(identifier, agents),
+  );
   ipcMain.handle("session-policy", (_e, id: string) => thetaAgents.getSessionPolicy(id));
   ipcMain.handle("set-session-tool", (_e, id: string, toolset: string, enabled: boolean | null) =>
     thetaAgents.setSessionTool(id, toolset, enabled),

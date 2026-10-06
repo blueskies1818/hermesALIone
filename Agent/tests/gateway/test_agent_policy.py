@@ -154,3 +154,39 @@ class TestDefaultAgent:
         assert _run(api.put_default_agent({"agent": "default"})) == {"agent": "default"}
         with pytest.raises(HTTPException):
             _run(api.put_default_agent({"agent": "nobody"}))
+
+
+class TestAgentSkills:
+    def test_disable_per_agent(self, monkeypatch):
+        fake = [
+            {"name": "alpha", "description": "a", "category": "x"},
+            {"name": "beta", "description": "b", "category": "y"},
+        ]
+        monkeypatch.setattr(api, "_all_skills", lambda: fake)
+        home = _make_agent("worker")
+        out = _run(api.put_agent_skills("worker", {"skills": {"beta": False}}))
+        states = {s["name"]: s["enabled"] for s in out["skills"]}
+        assert states == {"alpha": True, "beta": False}
+        saved = yaml.safe_load((home / "config.yaml").read_text(encoding="utf-8"))
+        assert saved["skills"]["disabled"] == ["beta"]
+        # Other agents are unaffected.
+        assert all(s["enabled"] for s in _run(api.get_agent_skills("default"))["skills"])
+        with pytest.raises(HTTPException):
+            _run(api.put_agent_skills("worker", {"skills": {"nope": True}}))
+
+    def test_install_only_for_some_agents(self, monkeypatch):
+        state = {"skills": [{"name": "alpha", "category": "x"}]}
+        monkeypatch.setattr(api, "_all_skills", lambda: state["skills"])
+
+        def fake_install(identifier, force=False, skip_confirm=False):
+            state["skills"] = state["skills"] + [{"name": "gamma", "category": "x"}]
+
+        import hermes_cli.skills_hub as hub
+        monkeypatch.setattr(hub, "do_install", fake_install)
+        _make_agent("worker")
+        _make_agent("voice")
+        out = _run(api.install_skill_for({"identifier": "x/gamma", "agents": ["worker"]}))
+        assert out["installed"] == ["gamma"]
+        assert {s["name"]: s["enabled"] for s in _run(api.get_agent_skills("worker"))["skills"]}["gamma"]
+        assert not {s["name"]: s["enabled"] for s in _run(api.get_agent_skills("voice"))["skills"]}["gamma"]
+        assert not {s["name"]: s["enabled"] for s in _run(api.get_agent_skills("default"))["skills"]}["gamma"]

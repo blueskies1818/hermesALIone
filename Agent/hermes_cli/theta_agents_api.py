@@ -169,6 +169,108 @@ async def put_agent_settings(name: str, body: dict):
     return agent_settings(agent)
 
 
+# ---------------------------------------------------------------------------
+# Skills per agent. Skills are shared (one skills folder on the server);
+# each agent can switch individual ones off in its own config
+# (``skills.disabled``), which the skill tools and prompt already honour.
+# ---------------------------------------------------------------------------
+
+def _all_skills() -> list[dict]:
+    from tools.skills_tool import _find_all_skills
+
+    return _find_all_skills(skip_disabled=True)
+
+
+def _disabled_skills(agent: str) -> set[str]:
+    if agent == roster.DEFAULT_AGENT:
+        from hermes_cli.config import load_config
+
+        config = load_config()
+    else:
+        config = roster._read_config(roster.agent_home(agent))
+    skills = config.get("skills") if isinstance(config.get("skills"), dict) else {}
+    return set(agent_policy._names(skills.get("disabled")))
+
+
+def agent_skills(agent: str) -> dict:
+    disabled = _disabled_skills(agent)
+    rows = [
+        {
+            "name": s.get("name", ""),
+            "description": s.get("description", ""),
+            "category": s.get("category") or "other",
+            "enabled": s.get("name") not in disabled,
+        }
+        for s in _all_skills()
+    ]
+    rows.sort(key=lambda r: (r["category"], r["name"]))
+    return {"agent": agent, "skills": rows}
+
+
+def _set_disabled(agent: str, names: dict[str, bool]) -> None:
+    with _agent_config_for_edit(agent) as config:
+        skills = config.get("skills") if isinstance(config.get("skills"), dict) else {}
+        disabled = set(agent_policy._names(skills.get("disabled")))
+        for name, enabled in names.items():
+            if enabled:
+                disabled.discard(name)
+            else:
+                disabled.add(name)
+        skills["disabled"] = sorted(disabled)
+        config["skills"] = skills
+
+
+@router.get("/api/agents/{name}/skills")
+async def get_agent_skills(name: str):
+    return agent_skills(_agent_name(name))
+
+
+@router.put("/api/agents/{name}/skills")
+async def put_agent_skills(name: str, body: dict):
+    """``{"skills": {name: true|false}}`` — switch skills on/off for the agent."""
+    agent = _agent_name(name)
+    changes = body.get("skills")
+    if not isinstance(changes, dict) or not all(isinstance(v, bool) for v in changes.values()):
+        raise HTTPException(status_code=400, detail="skills must be {name: true|false}")
+    known = {s.get("name") for s in _all_skills()}
+    unknown = [n for n in changes if n not in known]
+    if unknown:
+        raise HTTPException(status_code=404, detail=f"Unknown skill: {unknown[0]}")
+    _set_disabled(agent, changes)
+    return agent_skills(agent)
+
+
+@router.post("/api/theta/skills/install")
+async def install_skill_for(body: dict):
+    """Install a skill; with ``agents`` given, only those agents get it."""
+    import asyncio
+
+    identifier = str(body.get("identifier") or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=400, detail="identifier is required")
+    only = body.get("agents")
+    targets = None
+    if isinstance(only, list) and only:
+        targets = {_agent_name(str(a)) for a in only}
+    before = {s.get("name") for s in _all_skills()}
+
+    def _install() -> None:
+        from hermes_cli.skills_hub import do_install
+
+        do_install(identifier, force=bool(body.get("force", True)), skip_confirm=True)
+
+    try:
+        await asyncio.to_thread(_install)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Install failed: {exc}")
+    added = sorted(n for n in ({s.get("name") for s in _all_skills()} - before) if n)
+    if targets is not None and added:
+        everyone = {roster.DEFAULT_AGENT} | {a["name"] for a in roster.list_agents()}
+        for agent in everyone - targets:
+            _set_disabled(agent, {n: False for n in added})
+    return {"ok": True, "installed": added}
+
+
 @router.get("/api/theta/default-agent")
 async def get_default_agent():
     return {"agent": roster.default_agent_name()}

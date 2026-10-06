@@ -71,5 +71,12 @@ export interface McpServerInput {
   headers?: Record<string, string>;
 }
 
+export interface AgentSkill {
+  name: string;
+  description: string;
+  category: string;
+  enabled: boolean;
+}
+
 /** `{ok, data}` or `{ok: false, error}` from the server. */
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string };

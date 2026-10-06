@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
+import { AgentSkillsSection } from "./AgentSkillsSection";
 import type {
   AgentSettings,
   AgentSettingsPatch,
@@ -265,6 +266,8 @@ export function AgentSettingsPanel({
                 onToggle={(row) => save({ tools: { [row.name]: !row.default } })}
               />
             </section>
+
+            <AgentSkillsSection agent={agent} />
 
             <section>
               <h4>Projects</h4>

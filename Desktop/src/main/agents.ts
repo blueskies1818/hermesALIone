@@ -2,6 +2,7 @@ import { apiFetch } from "./hermes";
 import type {
   AgentSettings,
   AgentSettingsPatch,
+  AgentSkill,
   ApiResult,
   McpServerInfo,
   McpServerInput,
@@ -38,6 +39,24 @@ export const updateAgentSettings = (
   name: string,
   patch: AgentSettingsPatch,
 ): Promise<ApiResult<AgentSettings>> => call(agentPath(name), { method: "PUT", body: patch });
+
+type SkillsResult = ApiResult<{ agent: string; skills: AgentSkill[] }>;
+
+export const getAgentSkills = (name: string): Promise<SkillsResult> =>
+  call(`/api/agents/${encodeURIComponent(name || "default")}/skills`);
+
+export const setAgentSkills = (name: string, skills: Record<string, boolean>): Promise<SkillsResult> =>
+  call(`/api/agents/${encodeURIComponent(name || "default")}/skills`, {
+    method: "PUT",
+    body: { skills },
+  });
+
+/** Install a skill; `agents` limits it to those agents (others get it off). */
+export const installSkillFor = (
+  identifier: string,
+  agents?: string[],
+): Promise<ApiResult<{ ok: boolean; installed: string[] }>> =>
+  call("/api/theta/skills/install", { method: "POST", body: { identifier, agents } });
 
 export const getSessionPolicy = (id: string): Promise<ApiResult<SessionPolicy>> =>
   call(sessionPath(id, "policy"));

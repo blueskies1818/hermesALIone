@@ -3,6 +3,7 @@ import type { Attachment } from "../shared/attachments";
 import type {
   AgentSettings,
   AgentSettingsPatch,
+  AgentSkill,
   ApiResult,
   McpServerInfo,
   McpServerInput,
@@ -222,6 +223,15 @@ interface HermesAPI {
   ) => Promise<{ ok: boolean; canceled?: boolean; savedTo?: string; error?: string }>;
   agentSettings: (name: string) => Promise<ApiResult<AgentSettings>>;
   updateAgentSettings: (name: string, patch: AgentSettingsPatch) => Promise<ApiResult<AgentSettings>>;
+  agentSkills: (name: string) => Promise<ApiResult<{ agent: string; skills: AgentSkill[] }>>;
+  setAgentSkills: (
+    name: string,
+    skills: Record<string, boolean>,
+  ) => Promise<ApiResult<{ agent: string; skills: AgentSkill[] }>>;
+  installSkillFor: (
+    identifier: string,
+    agents?: string[],
+  ) => Promise<ApiResult<{ ok: boolean; installed: string[] }>>;
   sessionPolicy: (id: string) => Promise<ApiResult<SessionPolicy>>;
   setSessionTool: (id: string, toolset: string, enabled: boolean | null) => Promise<ApiResult<SessionPolicy>>;
   setSessionProject: (id: string, project: string) => Promise<ApiResult<SessionPolicy>>;

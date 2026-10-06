@@ -4,6 +4,7 @@ import type { Attachment } from "../shared/attachments";
 import type {
   AgentSettings,
   AgentSettingsPatch,
+  AgentSkill,
   ApiResult,
   McpServerInfo,
   McpServerInput,
@@ -215,6 +216,18 @@ const hermesAPI = {
     ipcRenderer.invoke("agent-settings", name),
   updateAgentSettings: (name: string, patch: AgentSettingsPatch): Promise<ApiResult<AgentSettings>> =>
     ipcRenderer.invoke("update-agent-settings", name, patch),
+  agentSkills: (name: string): Promise<ApiResult<{ agent: string; skills: AgentSkill[] }>> =>
+    ipcRenderer.invoke("agent-skills", name),
+  setAgentSkills: (
+    name: string,
+    skills: Record<string, boolean>,
+  ): Promise<ApiResult<{ agent: string; skills: AgentSkill[] }>> =>
+    ipcRenderer.invoke("set-agent-skills", name, skills),
+  installSkillFor: (
+    identifier: string,
+    agents?: string[],
+  ): Promise<ApiResult<{ ok: boolean; installed: string[] }>> =>
+    ipcRenderer.invoke("install-skill-for", identifier, agents),
   sessionPolicy: (id: string): Promise<ApiResult<SessionPolicy>> =>
     ipcRenderer.invoke("session-policy", id),
   setSessionTool: (id: string, toolset: string, enabled: boolean | null): Promise<ApiResult<SessionPolicy>> =>
