@@ -1860,30 +1860,52 @@ class APIServerAdapter(BasePlatformAdapter):
                 except ImportError:
                     logger.warning("tts_streaming module not available; TTS audio disabled")
 
-            async def _emit_tts_audio(sentence: str):
+            # Theta: sentences are synthesised in parallel but must be sent in
+            # sentence order — otherwise a short last sentence finishes first
+            # and is spoken first. Each sentence waits for the previous one's
+            # event before writing.
+            _tts_prev_sent: Optional[asyncio.Event] = None
+
+            def _queue_tts(sentence: str) -> None:
+                nonlocal _tts_prev_sent
+                done = asyncio.Event()
+                _tts_tasks.append(
+                    asyncio.create_task(_emit_tts_audio(sentence, _tts_prev_sent, done))
+                )
+                _tts_prev_sent = done
+
+            async def _emit_tts_audio(
+                sentence: str,
+                previous: Optional[asyncio.Event],
+                done: asyncio.Event,
+            ):
                 """Synthesise *sentence* and emit ``event: hermes.tts.audio``."""
                 nonlocal _tts_audio_index
-                if _tts_buf is None:
-                    return
-                from tools.tts_streaming import strip_markdown, stream_tts_to_buffer
-                cleaned = strip_markdown(sentence).strip()
-                if not cleaned:
-                    return
                 try:
-                    audio_b64 = await asyncio.to_thread(stream_tts_to_buffer, cleaned)
-                except Exception as exc:
-                    logger.warning("TTS synthesis failed: %s", exc)
-                    return
-                if audio_b64:
-                    payload = json.dumps({
-                        "audio": audio_b64,
-                        "text": cleaned,
-                        "index": _tts_audio_index,
-                    })
-                    await response.write(
-                        f"event: hermes.tts.audio\ndata: {payload}\n\n".encode()
-                    )
-                    _tts_audio_index += 1
+                    if _tts_buf is None:
+                        return
+                    from tools.tts_streaming import strip_markdown, stream_tts_to_buffer
+                    cleaned = strip_markdown(sentence).strip()
+                    audio_b64 = None
+                    if cleaned:
+                        try:
+                            audio_b64 = await asyncio.to_thread(stream_tts_to_buffer, cleaned)
+                        except Exception as exc:
+                            logger.warning("TTS synthesis failed: %s", exc)
+                    if previous is not None:
+                        await previous.wait()
+                    if audio_b64:
+                        payload = json.dumps({
+                            "audio": audio_b64,
+                            "text": cleaned,
+                            "index": _tts_audio_index,
+                        })
+                        await response.write(
+                            f"event: hermes.tts.audio\ndata: {payload}\n\n".encode()
+                        )
+                        _tts_audio_index += 1
+                finally:
+                    done.set()
 
             # Helper — route a queue item to the correct SSE event.
             async def _emit(item):
@@ -1923,7 +1945,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     if _tts_buf is not None and isinstance(item, str):
                         sentences = _tts_buf.feed(item)
                         for sent in sentences:
-                            _tts_tasks.append(asyncio.create_task(_emit_tts_audio(sent)))
+                            _queue_tts(sent)
 
                 return time.monotonic()
 
@@ -1959,7 +1981,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if _tts_buf is not None:
                 remaining = _tts_buf.flush_remaining()
                 if remaining:
-                    _tts_tasks.append(asyncio.create_task(_emit_tts_audio(remaining)))
+                    _queue_tts(remaining)
             if _tts_tasks:
                 try:
                     await asyncio.wait_for(
